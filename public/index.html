@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity on Cursor | Bridge & Model Gateway</title>
+  <meta name="description" content="Use Antigravity's Gemini 3.8 Flash High, Claude 4.6 Thinking, and more directly in Cursor IDE.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>Antigravity <span>on Cursor</span></h1>
+          <span class="badge version-badge">v1.0 • Gemini 3.8 & Claude</span>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="status-indicator" id="connection-status-pill">
+          <span class="status-dot"></span>
+          <span class="status-text" id="connection-status-label">Checking connection...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab active" data-tab="setup" id="tab-btn-setup" role="tab" aria-selected="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        Cursor Setup Guide
+      </button>
+
+      <button class="nav-tab" data-tab="quota" id="tab-btn-quota" role="tab" aria-selected="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="20" x2="12" y2="10"></line>
+          <line x1="18" y1="20" x2="18" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="16"></line>
+        </svg>
+        Live Quota & Usage
+      </button>
+
+      <button class="nav-tab" data-tab="keys" id="tab-btn-keys" role="tab" aria-selected="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5M7 13l-4 4v4h4l4-4"></path>
+          <circle cx="16" cy="8" r="5"></circle>
+        </svg>
+        API Keys
+      </button>
+
+      <button class="nav-tab" data-tab="accounts" id="tab-btn-accounts" role="tab" aria-selected="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        Google Accounts
+      </button>
+
+      <button class="nav-tab" data-tab="proxy" id="tab-btn-proxy" role="tab" aria-selected="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        Network &amp; Proxy
+      </button>
+    </nav>
+
+    <!-- TAB 1: CURSOR SETUP GUIDE -->
+    <main class="tab-content active" id="tab-setup">
+      <div class="hero-card">
+        <div class="hero-content">
+          <h2>Configure Cursor in 3 Simple Steps</h2>
+          <p>Copy your public tunnel URL and API key into Cursor's model settings. All prompts from Cursor Composer and Chat will automatically route to Antigravity.</p>
+        </div>
+        <div class="hero-badge">
+          <span class="pulse-icon"></span>
+          <span>Ready to Connect</span>
+        </div>
+      </div>
+
+      <!-- Cloudflare Tunnel Banner -->
+      <div class="tunnel-banner" id="tunnel-banner">
+        <div class="tunnel-banner-header">
+          <div class="tunnel-banner-icon" id="tunnel-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+          </div>
+          <div class="tunnel-banner-title">
+            <span class="tunnel-label">Serveo SSH Tunnel</span>
+            <span class="tunnel-status-badge" id="tunnel-status-badge">Starting…</span>
+          </div>
+          <div class="tunnel-why">
+            <span class="tunnel-why-text">Bypasses Cursor's private-network restriction</span>
+          </div>
+        </div>
+
+        <div class="tunnel-url-section" id="tunnel-url-section">
+          <div class="tunnel-waiting" id="tunnel-waiting">
+            <div class="tunnel-spinner"></div>
+            <span>Establishing tunnel… usually takes 5–10 seconds</span>
+          </div>
+          <div class="tunnel-ready" id="tunnel-ready" style="display:none;">
+            <div class="tunnel-url-label">🎯 Paste this as your Cursor Base URL:</div>
+            <div class="code-box tunnel-url-box">
+              <code id="tunnel-public-url">https://…</code>
+              <button class="copy-btn" id="btn-copy-tunnel-url" title="Copy Tunnel URL">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copy
+              </button>
+            </div>
+            <div class="tunnel-note">⚠️ This URL changes each restart — update Cursor when you restart the server.</div>
+          </div>
+          <div class="tunnel-error" id="tunnel-error" style="display:none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <span>Tunnel offline — retrying automatically. Check that cloudflared is installed.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps-grid">
+        <!-- Step 1 -->
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <div class="step-body">
+            <h3>Set Override OpenAI Base URL</h3>
+            <p>In Cursor, go to <strong>Cursor Settings &gt; Models</strong> and enable <strong>Override OpenAI Base URL</strong>. Use the <strong>public tunnel URL</strong> above (not localhost).</p>
+            <div class="code-box">
+              <code id="code-base-url">Waiting for tunnel…</code>
+              <button class="copy-btn" data-copy-target="code-base-url" id="btn-copy-base-url" title="Copy URL">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <div class="step-body">
+            <h3>Set OpenAI API Key</h3>
+            <p>Generate a key in the <a href="javascript:void(0)" id="link-step-keys" style="color: var(--accent-primary); font-weight: 500; text-decoration: underline;">API Keys</a> tab, copy the secret key, and paste it into Cursor Settings &gt; Models.</p>
+            <div class="code-box" style="display: flex; justify-content: space-between; align-items: center;">
+              <code style="color: var(--text-muted); font-size: 0.8rem;">sk-ag-••••••••••••••••</code>
+              <button class="btn btn-primary" id="btn-step-create-key" style="padding: 4px 12px; font-size: 0.78rem;">+ Create Key</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card full-width">
+          <div class="step-number">3</div>
+          <div class="step-body">
+            <h3>Add Antigravity Models to Cursor</h3>
+            <p>Under <strong>Model Names</strong> in Cursor Settings, click <strong>+ Add model</strong> and paste any of the following model IDs:</p>
+
+            <div class="model-cards-grid" id="models-list-container">
+              <!-- Dynamically populated -->
+              <div class="loader-state">Loading model catalog...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 2: LIVE QUOTA & USAGE -->
+    <section class="tab-content" id="tab-quota">
+      <div class="section-header">
+        <div>
+          <h2>Antigravity Live Quota</h2>
+          <p>Real-time quota monitoring from your Google Account backend.</p>
+        </div>
+        <button class="btn btn-outline" id="btn-refresh-quota">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          Refresh Now
+        </button>
+      </div>
+
+      <div class="quota-groups-container" id="quota-groups-wrapper">
+        <div class="loader-state">Fetching quota telemetry...</div>
+      </div>
+    </section>
+
+    <!-- TAB 3: API KEYS -->
+    <section class="tab-content" id="tab-keys">
+      <div class="section-header">
+        <div>
+          <h2>API Keys Management</h2>
+          <p>Create separate keys for personal projects, team profiles, or multiple accounts.</p>
+        </div>
+        <button class="btn btn-primary" id="btn-open-create-key">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Create New API Key
+        </button>
+      </div>
+
+      <div class="card table-card">
+        <table class="keys-table">
+          <thead>
+            <tr>
+              <th>Key Name</th>
+              <th>Key (Masked)</th>
+              <th>Bound Account</th>
+              <th>Created</th>
+              <th>Last Used</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="keys-table-body">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 4: GOOGLE ACCOUNTS -->
+    <section class="tab-content" id="tab-accounts">
+      <div class="section-header">
+        <div>
+          <h2>Google Accounts Manager</h2>
+          <p>Switch between multiple Google accounts or add backup credentials.</p>
+        </div>
+        <button class="btn btn-primary" id="btn-open-add-account">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Google Account
+        </button>
+      </div>
+
+      <div class="accounts-grid" id="accounts-list-wrapper">
+        <!-- Dynamically populated -->
+      </div>
+    </section>
+
+    <!-- TAB 5: NETWORK & PROXY -->
+    <section class="tab-content" id="tab-proxy">
+      <div class="section-header">
+        <div>
+          <h2>Network &amp; Proxy</h2>
+          <p>Route only Google AI APIs through your proxy. Claude and all other traffic stays direct.</p>
+        </div>
+      </div>
+
+      <!-- How it works banner -->
+      <div class="proxy-info-banner">
+        <div class="proxy-info-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+        </div>
+        <div class="proxy-info-text">
+          <strong>Split-tunnel proxy via PAC file</strong>
+          <p>Only <code>*.googleapis.com</code> (Gemini/Cloud Code) routes through your proxy. Claude (Anthropic), localhost, and all other traffic goes <strong>direct</strong> — no slowdown for anything else.</p>
+        </div>
+      </div>
+
+      <!-- Routing diagram -->
+      <div class="proxy-routing-visual">
+        <div class="route-item route-proxy">
+          <div class="route-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          </div>
+          <div>
+            <div class="route-label">Gemini / Google AI</div>
+            <div class="route-sublabel">googleapis.com</div>
+          </div>
+          <div class="route-arrow">→</div>
+          <div class="route-badge route-via-proxy">Via Proxy</div>
+        </div>
+        <div class="route-item route-direct">
+          <div class="route-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"></path></svg>
+          </div>
+          <div>
+            <div class="route-label">Claude (Anthropic)</div>
+            <div class="route-sublabel">anthropic.com</div>
+          </div>
+          <div class="route-arrow">→</div>
+          <div class="route-badge route-direct-badge">Direct</div>
+        </div>
+        <div class="route-item route-direct">
+          <div class="route-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 21V9"></path></svg>
+          </div>
+          <div>
+            <div class="route-label">Local / Everything else</div>
+            <div class="route-sublabel">localhost, other sites</div>
+          </div>
+          <div class="route-arrow">→</div>
+          <div class="route-badge route-direct-badge">Direct</div>
+        </div>
+      </div>
+
+      <!-- Proxy Settings Form -->
+      <div class="card proxy-settings-card">
+        <div class="proxy-settings-header">
+          <h3>Proxy Settings</h3>
+          <label class="toggle-switch" title="Enable or disable proxy routing">
+            <input type="checkbox" id="proxy-enabled-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="proxy-form" id="proxy-form-fields">
+          <div class="proxy-form-row">
+            <div class="form-group flex-grow">
+              <label for="proxy-url-input">Proxy URL</label>
+              <input type="text" id="proxy-url-input"
+                placeholder="socks5://127.0.0.1:1080  or  http://127.0.0.1:8080"
+                autocomplete="off" spellcheck="false">
+              <div class="input-hint">SSH tunnel: <code>ssh -D 1080 -N user@your-server</code></div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="btn-save-proxy" style="margin-top: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            Save Proxy Settings
+          </button>
+        </div>
+      </div>
+
+      <!-- macOS PAC Apply Card -->
+      <div class="card proxy-pac-card">
+        <div class="proxy-pac-header">
+          <div class="proxy-pac-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <h3>Apply to macOS System</h3>
+          </div>
+          <div class="pac-macos-status" id="pac-macos-status">
+            <span class="status-dot"></span>
+            <span id="pac-status-text">Checking...</span>
+          </div>
+        </div>
+        <p class="proxy-pac-desc">One click applies the PAC file to your Mac's network settings. No third-party app needed. Your browser and other apps are unaffected.</p>
+
+        <div class="proxy-pac-url-row">
+          <span class="proxy-pac-url-label">PAC URL:</span>
+          <code id="proxy-pac-url">http://localhost:8045/proxy.pac</code>
+          <button class="copy-btn" id="btn-copy-pac-url" data-copy-target="proxy-pac-url" title="Copy PAC URL">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Copy
+          </button>
+        </div>
+
+        <div class="proxy-pac-actions">
+          <button class="btn btn-primary" id="btn-apply-pac">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Apply PAC to macOS
+          </button>
+          <button class="btn btn-outline btn-danger-outline" id="btn-disable-pac">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            Remove PAC
+          </button>
+        </div>
+      </div>
+
+      <!-- SSH Tunnel Quick Reference -->
+      <div class="card proxy-ssh-card">
+        <h3>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: middle;"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+          Quick SSH Tunnel Setup
+        </h3>
+        <p style="color: var(--text-muted); margin-bottom: 14px; font-size: 0.85rem;">If you have a VPS or server outside your region, this is the easiest way to create a proxy:</p>
+        <div class="ssh-steps">
+          <div class="ssh-step">
+            <div class="ssh-step-num">1</div>
+            <div class="ssh-step-body">
+              <div class="ssh-step-label">Start SOCKS5 tunnel (runs in background):</div>
+              <div class="code-box" style="margin-top: 6px;">
+                <code id="ssh-cmd-1">ssh -D 1080 -N -f user@YOUR_SERVER_IP</code>
+                <button class="copy-btn" data-copy-target="ssh-cmd-1" title="Copy">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  Copy
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="ssh-step">
+            <div class="ssh-step-num">2</div>
+            <div class="ssh-step-body">
+              <div class="ssh-step-label">Enter this as your Proxy URL above:</div>
+              <div class="code-box" style="margin-top: 6px;">
+                <code id="ssh-cmd-2">socks5://127.0.0.1:1080</code>
+                <button class="copy-btn" data-copy-target="ssh-cmd-2" title="Copy">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  Copy
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="ssh-step">
+            <div class="ssh-step-num">3</div>
+            <div class="ssh-step-body">
+              <div class="ssh-step-label">Click <strong>Save</strong> then <strong>Apply PAC to macOS</strong> above.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Modal: Create Key -->
+  <div class="modal-backdrop" id="modal-create-key">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Create New API Key</h3>
+        <button class="close-btn" id="btn-close-modal-key">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label for="input-key-name">Key Name</label>
+        <input type="text" id="input-key-name" placeholder="e.g. Work Project, Cursor Secondary">
+        <label for="select-key-account">Bound Google Account</label>
+        <select id="select-key-account">
+          <option value="default">Primary Account (Antigravity IDE)</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btn-cancel-modal-key">Cancel</button>
+        <button class="btn btn-primary" id="btn-submit-create-key">Generate Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Key Generated (Shown ONLY Once) -->
+  <div class="modal-backdrop" id="modal-key-generated">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Save Your Secret Key</h3>
+        <button class="close-btn" id="btn-close-modal-generated">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert-notice">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          <div>
+            <strong>Save this key securely.</strong>
+            <p>For your security, this secret key will <strong>never be shown again</strong>. If you lose it, you will need to generate a new key.</p>
+          </div>
+        </div>
+
+        <label>Your Secret API Key</label>
+        <div class="code-box">
+          <code id="display-generated-key">sk-ag-...</code>
+          <button class="copy-btn" id="btn-copy-generated-key" title="Copy Key">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Copy
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-done-key-generated">I have saved this key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add Account -->
+  <div class="modal-backdrop" id="modal-add-account">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Add Secondary Google Account</h3>
+        <button class="close-btn" id="btn-close-modal-acc">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label for="input-acc-name">Account Label</label>
+        <input type="text" id="input-acc-name" placeholder="e.g. Work Google Account">
+        <label for="input-acc-email">Email (Optional)</label>
+        <input type="email" id="input-acc-email" placeholder="user@gmail.com">
+        <label for="input-acc-token">Antigravity OAuth Token (JSON)</label>
+        <textarea id="input-acc-token" rows="5" placeholder='Paste JSON from ~/.gemini/jetski-standalone-oauth-token'></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btn-cancel-modal-acc">Cancel</button>
+        <button class="btn btn-primary" id="btn-submit-add-account">Save Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">Copied to clipboard!</div>
+
+  <script src="app.js"></script>
+</body>
+</html>
