@@ -242,14 +242,77 @@ async function fetchModels() {
 /* ==========================================
    Live Quota
 ========================================== */
-async function fetchQuota() {
+let currentQuotaAccountId = null;
+
+async function fetchQuota(targetAccountId = null) {
   const wrapper = document.getElementById('quota-groups-wrapper');
+  const subtitleEl = document.getElementById('quota-subtitle');
+  const badgeEl = document.getElementById('quota-account-badge');
+  const selectEl = document.getElementById('quota-account-select');
+
+  // 1. Resolve accounts and which account we are viewing
+  let activeId = 'default';
+  let allAccounts = [];
   try {
-    const res = await fetch('/api/quota');
+    const [settingsRes, accsRes] = await Promise.all([
+      fetch('/api/accounts/settings').catch(() => null),
+      fetch('/api/accounts').catch(() => null)
+    ]);
+    if (settingsRes && settingsRes.ok) {
+      const settings = await settingsRes.json();
+      activeId = settings.activeAccountId || 'default';
+    }
+    if (accsRes && accsRes.ok) {
+      allAccounts = await accsRes.json();
+    }
+  } catch {}
+
+  const resolvedId = targetAccountId || currentQuotaAccountId || activeId;
+  currentQuotaAccountId = resolvedId;
+
+  // 2. Populate dropdown if present
+  if (selectEl && allAccounts.length > 0) {
+    selectEl.innerHTML = allAccounts.map(a => {
+      const activeTag = a.id === activeId ? ' [Active]' : '';
+      const emailTag = a.email ? ` (${a.email})` : '';
+      return `<option value="${escapeHtml(a.id)}" ${a.id === resolvedId ? 'selected' : ''}>${escapeHtml(a.name)}${escapeHtml(emailTag)}${activeTag}</option>`;
+    }).join('');
+    if (!selectEl.dataset.hasListener) {
+      selectEl.dataset.hasListener = 'true';
+      selectEl.addEventListener('change', (e) => {
+        fetchQuota(e.target.value);
+      });
+    }
+  }
+
+  // 3. Update Badge
+  const viewingAcc = allAccounts.find(a => a.id === resolvedId);
+  if (badgeEl) {
+    if (viewingAcc) {
+      const isAct = viewingAcc.id === activeId;
+      const label = viewingAcc.email
+        ? `${escapeHtml(viewingAcc.name)} &lt;${escapeHtml(viewingAcc.email)}&gt;${isAct ? ' (Active)' : ''}`
+        : `${escapeHtml(viewingAcc.name)}${isAct ? ' (Active)' : ''}`;
+      badgeEl.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        ${label}
+      `;
+      badgeEl.style.display = 'inline-flex';
+    } else {
+      badgeEl.style.display = 'none';
+    }
+  }
+  if (subtitleEl) {
+    subtitleEl.textContent = 'Real-time quota monitoring from your Google Account backend.';
+  }
+
+  // 4. Fetch live quota for the specific account
+  try {
+    const res = await fetch(`/api/quota?accountId=${encodeURIComponent(resolvedId)}`);
     const quota = await res.json();
 
     if (!quota || !quota.groups || quota.groups.length === 0) {
-      wrapper.innerHTML = '<div class="loader-state">No quota telemetry available</div>';
+      wrapper.innerHTML = '<div class="loader-state">No quota telemetry available for this account</div>';
       return;
     }
 
@@ -297,7 +360,7 @@ async function fetchQuota() {
 }
 
 document.getElementById('btn-refresh-quota')?.addEventListener('click', () => {
-  fetchQuota();
+  fetchQuota(currentQuotaAccountId);
   showToast('Refreshed quota data');
 });
 
@@ -407,13 +470,22 @@ async function fetchAccounts() {
     document.querySelectorAll('.btn-set-active').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-account-id');
-        await fetch('/api/accounts/active', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountId: id })
-        });
-        fetchAccounts();
-        showToast('Active account switched');
+        btn.disabled = true;
+        btn.textContent = 'Switching...';
+        try {
+          await fetch('/api/accounts/active', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId: id })
+          });
+          currentQuotaAccountId = id;
+          await fetchAccounts();
+          fetchQuota(id);
+          fetchModels();
+          showToast('Active account switched');
+        } catch (err) {
+          showToast(`Error: ${err.message}`, true);
+        }
       });
     });
   } catch (err) {
@@ -482,6 +554,61 @@ function initModals() {
       showToast('API Key generated! Save your secret key.');
     } catch (err) {
       alert('Failed to create key: ' + err.message);
+    }
+  });
+
+  // Auto-switch toggle listener
+  document.getElementById('toggle-auto-switch')?.addEventListener('change', async (e) => {
+    try {
+      await fetch('/api/accounts/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoSwitchOnLimit: e.target.checked })
+      });
+      showToast(e.target.checked ? 'Auto-switching enabled' : 'Auto-switching disabled');
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  // 1-Click Sign in with Google Button
+  document.getElementById('btn-google-oauth-login')?.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/accounts/login/url');
+      const data = await res.json();
+      if (!data.url) throw new Error('Failed to get authorization URL');
+
+      const width = 520;
+      const height = 680;
+      const left = Math.max(0, (window.screen.width - width) / 2);
+      const top = Math.max(0, (window.screen.height - height) / 2);
+
+      const authWindow = window.open(
+        data.url,
+        'google_oauth_popup',
+        `width=${width},height=${height},top=${top},left=${left},status=no,menubar=no,toolbar=no`
+      );
+
+      // Poll accounts while auth window is open
+      const pollTimer = setInterval(() => {
+        if (!authWindow || authWindow.closed) {
+          clearInterval(pollTimer);
+          fetchAccounts();
+        }
+      }, 1500);
+
+    } catch (err) {
+      alert('Error initiating Google Login: ' + err.message);
+    }
+  });
+
+  // Window message listener for completed OAuth popup
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'GOOGLE_ACCOUNT_ADDED') {
+      const modalAcc = document.getElementById('modal-add-account');
+      if (modalAcc) modalAcc.classList.remove('open');
+      fetchAccounts();
+      showToast('Google Account added: ' + (e.data.email || 'Success'));
     }
   });
 

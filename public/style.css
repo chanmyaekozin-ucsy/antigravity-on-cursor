@@ -462,6 +462,25 @@ body {
   font-size: 0.86rem;
 }
 
+.quota-account-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 3px 10px 3px 8px;
+  margin-bottom: 6px;
+}
+
+.quota-account-badge svg {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
 .quota-group {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -1343,3 +1362,77 @@ body {
 
 
 
+
+/* Toggle Switch Styles */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(255,255,255,0.15);
+  transition: .25s ease;
+  border-radius: 24px;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .25s ease;
+  border-radius: 50%;
+}
+input:checked + .slider {
+  background-color: #6366f1;
+}
+input:checked + .slider:before {
+  transform: translateX(22px);
+}
+
+.btn-google {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(255,255,255,0.3) !important;
+  font-weight: 600 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.btn-google:hover {
+  background: #f8fafc !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+
+.account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #3b82f6;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 1.1rem;
+}

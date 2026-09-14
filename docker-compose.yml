@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  antigravity-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: antigravity-cursor-bridge
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8045}:8045"
+    volumes:
+      - gemini_data:/root/.gemini
+    environment:
+      - PORT=8045
+      - NODE_ENV=production
+      - DISABLE_TUNNEL=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8045/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  gemini_data:
+    driver: local

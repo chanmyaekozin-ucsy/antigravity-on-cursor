@@ -125,18 +125,12 @@ export async function handleChatCompletions(req, res) {
     };
     res.write(`data: ${JSON.stringify(initialChunk)}\n\n`);
 
-    const keepAlive = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(': keepalive\n\n');
-      }
-    }, 1200);
-
-    const cleanup = () => clearInterval(keepAlive);
-
+    let lastTokenTime = Date.now();
     let streamedContentLen = 0;
 
     const emitDelta = (text, type = 'content') => {
-      if (!text || res.writableEnded) return;
+      if (!text || res.writableEnded || abortController.signal.aborted) return;
+      lastTokenTime = Date.now();
       if (type === 'content') {
         streamedContentLen += text.length;
       }
@@ -149,7 +143,7 @@ export async function handleChatCompletions(req, res) {
           {
             index: 0,
             delta: type === 'reasoning'
-              ? { reasoning_content: text }
+              ? { reasoning_content: text, reasoning: text }
               : { content: text },
             finish_reason: null
           }
@@ -157,6 +151,35 @@ export async function handleChatCompletions(req, res) {
       };
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
     };
+
+    // Active token watchdog: if no content/reasoning tokens have been sent for 2500ms,
+    // emit a standard empty delta chunk. This resets Cursor's client-side inactivity timer
+    // without altering message content or finish reason.
+    const keepAlive = setInterval(() => {
+      if (res.writableEnded || abortController.signal.aborted) return;
+      const now = Date.now();
+      if (now - lastTokenTime >= 2500) {
+        lastTokenTime = now;
+        const pingChunk = {
+          id: completionId,
+          object: 'chat.completion.chunk',
+          created: createdTimestamp,
+          model: targetModel,
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: null
+            }
+          ]
+        };
+        res.write(`data: ${JSON.stringify(pingChunk)}\n\n`);
+      } else {
+        res.write(': keepalive\n\n');
+      }
+    }, 1000);
+
+    const cleanup = () => clearInterval(keepAlive);
 
     abortController.signal.addEventListener('abort', () => {
       cleanup();
@@ -170,13 +193,16 @@ export async function handleChatCompletions(req, res) {
         tool_choice,
         conversationId,
         headers: req.headers,
+        accountId: req.headers['x-account-id'] || authCheck.accountId,
         signal: abortController.signal,
         onDelta: (deltaPayload) => {
-          if (!deltaPayload || res.writableEnded) return;
+          if (!deltaPayload || res.writableEnded || abortController.signal.aborted) return;
+          lastTokenTime = Date.now();
           if (typeof deltaPayload === 'string') {
             process.stdout.write('·');
             emitDelta(deltaPayload, 'content');
           } else if (deltaPayload.thinking) {
+            process.stdout.write('💭');
             emitDelta(deltaPayload.thinking, 'reasoning');
           } else if (deltaPayload.content) {
             process.stdout.write('·');
@@ -315,7 +341,10 @@ export async function handleChatCompletions(req, res) {
         },
         onError: (err) => {
           cleanup();
-          if (res.writableEnded) return;
+          if (res.writableEnded || abortController.signal.aborted) {
+            console.log('[OpenAIAdapter] Request ended (client disconnected).');
+            return;
+          }
           console.error('[OpenAIAdapter] Completion stream error:', err.message);
           const errChunk = {
             error: {
@@ -351,6 +380,7 @@ export async function handleChatCompletions(req, res) {
         tool_choice,
         conversationId,
         headers: req.headers,
+        accountId: req.headers['x-account-id'] || authCheck.accountId,
         signal: abortController.signal,
         onDelta: (delta) => {
           if (typeof delta === 'string') accumulated += delta;

@@ -23,6 +23,10 @@ class TunnelManager extends EventEmitter {
 
   /** Start the tunnel pointing at localPort. Idempotent — safe to call multiple times. */
   start(localPort) {
+    if (process.env.DISABLE_TUNNEL === 'true' || process.env.ENABLE_TUNNEL === 'false') {
+      console.log('[Tunnel] Public tunnel disabled (running behind Coolify / external reverse proxy).');
+      return;
+    }
     if (this.started) return;
     this.started = true;
     this.stopped = false;

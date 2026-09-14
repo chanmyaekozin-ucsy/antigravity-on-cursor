@@ -1,4 +1,6 @@
 import { execSync, spawn } from 'child_process';
+import net from 'net';
+import { accountManager } from './accountManager.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -20,6 +22,20 @@ import {
 // Model dictionary mapping friendly IDs and labels to internal Antigravity model identifiers
 export const MODEL_MAP = {
   // Gemini Models
+  'gemini-3.8-flash-high': {
+    id: 'gemini-3.8-flash-high',
+    name: 'Gemini 3.8 Flash (High)',
+    model: 'MODEL_PLACEHOLDER_M318',
+    category: 'gemini',
+    description: 'Ultra-fast flagship with high reasoning effort'
+  },
+  'claude-sonnet-4-6': {
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6 (Thinking)',
+    model: 'MODEL_PLACEHOLDER_M35',
+    category: 'claude',
+    description: 'Anthropic Claude Sonnet 4.6 with native extended thinking'
+  },
   'dominate-gemini-3.8-flash-high': {
     id: 'gemini-3.8-flash-high',
     name: 'Gemini 3.8 Flash (High)',
@@ -78,7 +94,7 @@ export const MODEL_MAP = {
   },
 
   // Claude Models
-  'dominate-kalaude-sonnet-4-6': {
+  'dominate-klaude-sonnet-4-6': {
     id: 'claude-sonnet-4-6',
     name: 'Claude Sonnet 4.6 (Thinking)',
     model: 'MODEL_PLACEHOLDER_M35',
@@ -110,12 +126,26 @@ export const MODEL_MAP = {
   }
 };
 
+export function resolveModelConfig(modelId) {
+  if (!modelId) return MODEL_MAP['gemini-3.8-flash-high'] || MODEL_MAP['dominate-gemini-3.8-flash-high'];
+  if (MODEL_MAP[modelId]) return MODEL_MAP[modelId];
+  const lower = String(modelId).toLowerCase();
+  for (const [key, cfg] of Object.entries(MODEL_MAP)) {
+    if (key.toLowerCase() === lower || cfg.id?.toLowerCase() === lower || cfg.name?.toLowerCase() === lower) {
+      return cfg;
+    }
+  }
+  return MODEL_MAP['gemini-3.8-flash-high'] || MODEL_MAP['dominate-gemini-3.8-flash-high'] || Object.values(MODEL_MAP)[0];
+}
+
 class AntigravityClient {
   constructor() {
     this.serverUrl = null;
     this.csrfToken = null;
     this.pid = null;
     this.lastDiscoveryTime = 0;
+    this.accountConnections = new Map();
+    this._pendingLaunches = new Map(); // deduplicates concurrent server spawns per account
     this.cascadeSessions = new CascadeSessionStore();
   }
 
@@ -132,7 +162,7 @@ class AntigravityClient {
     // Try finding running language_server_macos_arm process
     try {
       const psOutput = execSync("ps aux | grep -i 'language_server_macos_arm' | grep -v grep", { encoding: 'utf-8' });
-      const lines = psOutput.trim().split('\n').filter(Boolean);
+      const lines = psOutput.trim().split('\n').filter(l => Boolean(l) && !l.includes('/accounts/'));
 
       // Sort: prefer daily-cloudcode-pa (workspace server with Cascade) over stable cloudcode-pa (geo-restricted)
       // Use enable_lsp and higher PID as secondary sort within same tier
@@ -188,13 +218,47 @@ class AntigravityClient {
       // Process search failed
     }
 
-    // If no running instance was found, check if Antigravity IDE binary exists and launch it
-    const binaryPath = '/Applications/Antigravity IDE.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm';
-    if (fs.existsSync(binaryPath)) {
+    // If no running instance was found, check if Antigravity binary exists and launch it
+    const binaryPath = this._resolveBinaryPath();
+    if (binaryPath) {
       return await this._launchStandalone(binaryPath);
     }
 
     return false;
+  }
+
+  /**
+   * Resolve language server binary path depending on OS (Linux Docker vs macOS)
+   */
+  _resolveBinaryPath() {
+    if (process.env.LANGUAGE_SERVER_BINARY && fs.existsSync(process.env.LANGUAGE_SERVER_BINARY)) {
+      return process.env.LANGUAGE_SERVER_BINARY;
+    }
+
+    if (process.platform === 'linux') {
+      const candidates = [
+        '/app/bin/language_server_linux_x64',
+        '/app/bin/language_server_linux_arm',
+        path.join(os.homedir(), '.gemini', 'bin', 'language_server_linux_x64'),
+        path.join(os.homedir(), '.gemini', 'bin', 'language_server_linux_arm')
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+      }
+    }
+
+    if (process.platform === 'darwin') {
+      const candidates = [
+        '/Applications/Antigravity IDE.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm',
+        '/Applications/Antigravity IDE.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_x64',
+        path.join(os.homedir(), '.gemini', 'bin', 'language_server_macos_arm')
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+      }
+    }
+
+    return null;
   }
 
   async _testEndpoint(baseUrl, csrfToken) {
@@ -290,60 +354,185 @@ class AntigravityClient {
     return '';
   }
 
-  async _launchStandalone(binaryPath) {
-    const csrf = crypto.randomUUID();
-    const logFd = fs.openSync('/tmp/antigravity-language-server.log', 'a');
-    const child = spawn(binaryPath, [
-      '--persistent_mode=true',
-      `--csrf_token=${csrf}`,
-      '--cloud_code_endpoint=https://cloudcode-pa.googleapis.com',
-      '--subclient_type=ide',
-      '--app_data_dir=antigravity-ide'
-    ], {
-      detached: true,
-      stdio: ['pipe', logFd, logFd]
+
+  async _getFreePort() {
+    return new Promise((resolve, reject) => {
+      const srv = net.createServer();
+      srv.listen(0, '127.0.0.1', () => {
+        const port = srv.address().port;
+        srv.close(() => resolve(port));
+      });
+      srv.on('error', reject);
     });
+  }
 
-    // The server aborts at startup unless it receives the binary Metadata
-    // protobuf on stdin (the IDE always writes it before ending stdin).
-    child.stdin.write(this._encodeMetadataProto({
-      ideName: 'antigravity-ide',
-      ideVersion: '1.107.0',
-      extensionName: 'antigravity-ide',
-      extensionVersion: '1.107.0',
-      extensionPath: path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(binaryPath))))),
-      locale: 'en',
-      os: 'darwin',
-      hardware: os.arch(),
-      sessionId: crypto.randomUUID(),
-      deviceFingerprint: this._readInstallationId(),
-      apiKey: this._readAccessToken(),
-      disableTelemetry: true
-    }));
-    child.stdin.end();
-    child.unref();
-    fs.closeSync(logFd);
+  /**
+   * Launch isolated language server instance for secondary account.
+   * Runs in standalone CLI mode pointing directly to ~/.gemini/accounts/<id>/.gemini.
+   */
+  async _launchAccountServer(accountId, binaryPath) {
+    try {
+      // Refresh token if needed AND write the refreshed token back to disk.
+      await accountManager.getValidAccessToken(accountId);
+      const acc = accountManager.getAccount(accountId);
+      if (!acc) throw new Error(`Account '${accountId}' not found`);
 
-    // Wait for server to start listening
-    for (let i = 0; i < 40; i++) {
-      await new Promise(r => setTimeout(r, 300));
+      const accDir = path.join(os.homedir(), '.gemini', 'accounts', accountId, '.gemini');
+      accountManager._writeAccountTokenDir(accountId, acc.token);
+
+      // Terminate any previous stale process for this specific account
       try {
-        const lsofOutput = execSync(`lsof -nP -p ${child.pid} | grep LISTEN`, { encoding: 'utf-8' });
-        const portMatches = [...lsofOutput.matchAll(/TCP\s+(?:127\.0\.0\.1|localhost):(\d+)\s+\(LISTEN\)/g)];
-        for (const m of portMatches) {
-          const port = parseInt(m[1], 10);
-          const testUrl = `http://127.0.0.1:${port}`;
-          if (await this._testEndpoint(testUrl, csrf)) {
-            this.serverUrl = testUrl;
-            this.csrfToken = csrf;
-            this.pid = child.pid;
-            this.lastDiscoveryTime = Date.now();
-            return true;
-          }
+        execSync(`pkill -f "gemini_dir=.*accounts/${accountId}"`, { stdio: 'ignore' });
+        await new Promise(r => setTimeout(r, 200));
+      } catch {}
+
+      const port = await this._getFreePort();
+      const csrf = crypto.randomUUID();
+      const logPath = path.join('/tmp', `antigravity-${accountId}.log`);
+      const logFd = fs.openSync(logPath, 'a');
+
+      const child = spawn(binaryPath, [
+        '--standalone=true',
+        '--subclient_type=cli',
+        `--gemini_dir=${accDir}`,
+        '--cloud_code_endpoint=https://cloudcode-pa.googleapis.com',
+        `--csrf_token=${csrf}`,
+        `--http_server_port=${port}`
+      ], {
+        detached: true,
+        stdio: ['ignore', logFd, logFd]
+      });
+      child.unref();
+      fs.closeSync(logFd);
+
+      console.log(`[Antigravity] Spawned secondary language server for '${accountId}' (${acc.email || acc.name}) on port ${port}, PID: ${child.pid}`);
+
+      const testUrl = `http://127.0.0.1:${port}`;
+      let connected = false;
+
+      // Poll up to 50 times (10 seconds)
+      for (let i = 0; i < 50; i++) {
+        await new Promise(r => setTimeout(r, 200));
+        const isValid = await this._testEndpoint(testUrl, csrf);
+        if (isValid) {
+          connected = true;
+          break;
         }
-      } catch {
-        // Still initializing
       }
+
+      if (!connected) {
+        console.error(`[Antigravity] Failed to connect secondary server for account '${accountId}' on port ${port}`);
+        try { process.kill(child.pid, 'SIGTERM'); } catch {}
+        return null;
+      }
+
+      const conn = {
+        serverUrl: testUrl,
+        csrfToken: csrf,
+        pid: child.pid,
+        proc: child,
+        accountId,
+        lastUsed: Date.now()
+      };
+      this.accountConnections.set(accountId, conn);
+      console.log(`[Antigravity] Connected to secondary account '${accountId}' (${acc.email || acc.name}) on port ${port}`);
+      return conn;
+    } catch (err) {
+      console.error(`[Antigravity] Error launching secondary server for '${accountId}':`, err.message);
+      return null;
+    }
+  }
+
+
+  /**
+   * Get active connection (URL + CSRF token) for given accountId or active account
+   */
+  async getConnection(accountId = null) {
+    const targetId = accountId || accountManager.config.activeAccountId || 'default';
+
+    if (targetId === 'default') {
+      const isConnected = await this.ensureConnected();
+      if (!isConnected || !this.serverUrl) {
+        throw new Error('Could not connect to Primary Antigravity Language Server');
+      }
+      return {
+        serverUrl: this.serverUrl,
+        csrfToken: this.csrfToken,
+        pid: this.pid,
+        accountId: 'default'
+      };
+    }
+
+    // Check cached connection for secondary account
+    const existing = this.accountConnections.get(targetId);
+    if (existing && existing.serverUrl && existing.csrfToken) {
+      const isAlive = await this._testEndpoint(existing.serverUrl, existing.csrfToken);
+      if (isAlive) {
+        existing.lastUsed = Date.now();
+        return existing;
+      }
+      this.accountConnections.delete(targetId);
+    }
+
+    // Guard against race condition: if a launch is already in progress for this
+    // account, reuse the same Promise instead of spawning a second server process.
+    if (this._pendingLaunches.has(targetId)) {
+      const conn = await this._pendingLaunches.get(targetId);
+      if (!conn) throw new Error(`Failed to initialize language server for account '${targetId}'`);
+      return conn;
+    }
+
+    const binaryPath = this._resolveBinaryPath();
+    if (!binaryPath) {
+      throw new Error(`Language server binary not found for platform: ${process.platform} (${process.arch})`);
+    }
+
+    const launchPromise = this._launchAccountServer(targetId, binaryPath)
+      .finally(() => this._pendingLaunches.delete(targetId));
+    this._pendingLaunches.set(targetId, launchPromise);
+
+    const newConn = await launchPromise;
+    if (!newConn) {
+      throw new Error(`Failed to initialize language server for account '${targetId}'`);
+    }
+
+    return newConn;
+  }
+
+  async _launchStandalone(binaryPath) {
+    const defaultGeminiDir = path.join(os.homedir(), '.gemini');
+    try {
+      const port = await this._getFreePort();
+      const csrf = crypto.randomUUID();
+      const logFd = fs.openSync('/tmp/antigravity-language-server.log', 'a');
+      const child = spawn(binaryPath, [
+        '--standalone=true',
+        '--subclient_type=cli',
+        `--gemini_dir=${defaultGeminiDir}`,
+        '--cloud_code_endpoint=https://cloudcode-pa.googleapis.com',
+        `--csrf_token=${csrf}`,
+        `--http_server_port=${port}`
+      ], {
+        detached: true,
+        stdio: ['ignore', logFd, logFd]
+      });
+      child.unref();
+      fs.closeSync(logFd);
+
+      const testUrl = `http://127.0.0.1:${port}`;
+      for (let i = 0; i < 50; i++) {
+        await new Promise(r => setTimeout(r, 200));
+        if (await this._testEndpoint(testUrl, csrf)) {
+          this.serverUrl = testUrl;
+          this.csrfToken = csrf;
+          this.pid = child.pid;
+          this.lastDiscoveryTime = Date.now();
+          console.log(`[Antigravity] Standalone primary server started on port ${port} (PID: ${child.pid})`);
+          return true;
+        }
+      }
+    } catch (err) {
+      console.error('[Antigravity] Error launching standalone primary server:', err.message);
     }
     return false;
   }
@@ -351,16 +540,16 @@ class AntigravityClient {
   /**
    * Fetch live models list
    */
-  async getModels() {
-    await this.ensureConnected();
-    if (!this.serverUrl) throw new Error('Antigravity Language Server not reachable');
+  async getModels(accountId = null) {
+    const conn = await this.getConnection(accountId);
+    if (!conn.serverUrl) throw new Error('Antigravity Language Server not reachable');
 
     try {
-      const resp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/GetCascadeModelConfigData`, {
+      const resp = await this._fetch(`${conn.serverUrl}/exa.language_server_pb.LanguageServerService/GetCascadeModelConfigData`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-codeium-csrf-token': this.csrfToken
+          'x-codeium-csrf-token': conn.csrfToken
         },
         body: '{}'
       });
@@ -399,25 +588,57 @@ class AntigravityClient {
   }
 
   /**
-   * Fetch live quota summary
+   * Fetch live quota summary for a specific account.
+   * Directly queries the Google Cloud Code PA API using the target account's OAuth access token
+   * for 100% token isolation, falling back to local Language Server RPC.
    */
-  async getQuota() {
-    await this.ensureConnected();
-    if (!this.serverUrl) throw new Error('Antigravity Language Server not reachable');
+  async getQuota(accountId = null) {
+    const targetId = accountId || accountManager.config.activeAccountId || 'default';
 
-    const resp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`, {
+    // 1. Direct fetch using the target account's isolated OAuth token
+    try {
+      const tokenInfo = await accountManager.getValidAccessToken(targetId).catch(() => null);
+      if (tokenInfo?.accessToken) {
+        const resp = await fetch('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${tokenInfo.accessToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'antigravity/cli/1.11.0 (aidev_client; os_type=darwin; arch=arm64)'
+          },
+          body: JSON.stringify({ project: 'aicode-consumers' })
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const result = data.response || data;
+          if (result && result.groups && result.groups.length > 0) {
+            return result;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[Antigravity] Direct CCPA quota fetch failed for '${targetId}', falling back to language server:`, err.message);
+    }
+
+    // 2. Fallback to Language Server RPC
+    const conn = await this.getConnection(targetId);
+    if (!conn.serverUrl) throw new Error('Antigravity Language Server not reachable');
+
+    const resp = await this._fetch(`${conn.serverUrl}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-codeium-csrf-token': this.csrfToken
+        'x-codeium-csrf-token': conn.csrfToken
       },
       body: '{}'
     });
 
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    return data.response || null;
+    return data.response || data || null;
   }
+
+
 
   /**
    * Execute chat completion via Cascade trajectory with native Cursor agent orchestration,
@@ -430,14 +651,12 @@ class AntigravityClient {
     tool_choice = 'auto',
     conversationId = null,
     headers = {},
+    accountId = null,
     onDelta,
     onDone,
     onError,
     signal
   }) {
-    await this.ensureConnected();
-    if (!this.serverUrl) throw new Error('Antigravity Language Server not reachable');
-
     // Register active messages for tool sanitization & context deduction
     setActiveMessages(messages);
 
@@ -460,75 +679,127 @@ class AntigravityClient {
 
     // Define fallback chain for models experiencing transient capacity limits
     const FALLBACK_CHAINS = {
-      'gemini-3.7-flash-high': ['gemini-3.8-flash-high', 'gemini-pro-agent'],
-      'gemini-3.7-flash-medium': ['gemini-3.8-flash-medium', 'gemini-3.8-flash-high'],
+      'dominate-gemini-3.8-flash-high': ['gemini-3.8-flash-medium', 'gemini-pro-agent'],
       'gemini-3.8-flash-high': ['gemini-3.8-flash-medium', 'gemini-pro-agent'],
-      'claude-opus-4-6-thinking': ['claude-sonnet-4-6'],
-      'claude-sonnet-4-6': ['gemini-3.8-flash-high']
+      'gemini-3.7-flash-high': ['gemini-3.8-flash-high', 'gemini-pro-agent'],
+      'gemini-3.7-flash-medium': ['gemini-3.8-flash-medium', 'gemini-pro-agent'],
+      'claude-opus-4-6-thinking': ['claude-sonnet-4-6', 'gemini-3.8-flash-high'],
+      'dominate-klaude-sonnet-4-6': ['claude-sonnet-4-6', 'gemini-3.8-flash-high'],
+      'claude-sonnet-4-6': ['gemini-3.8-flash-high', 'gemini-pro-agent'],
+      'claude-3-7-sonnet': ['claude-sonnet-4-6', 'gemini-3.8-flash-high']
     };
 
-    const modelsToTry = [modelId, ...(FALLBACK_CHAINS[modelId] || ['gemini-3.8-flash-high'])];
+    const modelsToTry = [modelId, ...(FALLBACK_CHAINS[modelId] || ['gemini-3.8-flash-medium', 'gemini-pro-agent'])];
 
+    let currentAccountId = accountId || accountManager.config.activeAccountId || 'default';
+    const accountsTried = new Set();
     let lastError = null;
     let anyDeltaSent = false;
 
-    for (let i = 0; i < modelsToTry.length; i++) {
-      const currentModelId = modelsToTry[i];
-      const modelConfig = MODEL_MAP[currentModelId] || MODEL_MAP['gemini-3.8-flash-high'];
-      const internalModel = modelConfig.model;
+    while (currentAccountId && !accountsTried.has(currentAccountId)) {
+      accountsTried.add(currentAccountId);
 
+      let conn = null;
       try {
-        await this._runCascadeAttempt({
-          internalModel,
-          cascadeId: isReused ? cascadeId : null,
-          fingerprint,
-          isReused,
-          initialStepOffset,
-          messageToSend,
-          images,
-          tools,
-          tool_choice,
-          hasTools,
-          messages,
-          signal,
-          onDelta: (delta) => {
-            anyDeltaSent = true;
-            onDelta(delta);
-          },
-          onDone
-        });
-        return; // Success!
-      } catch (err) {
-        lastError = err;
-        const isNetworkDrop = /EOF|ECONNRESET|ECONNREFUSED|fetch failed|UND_ERR/i.test(err.message);
-
-        // If tokens were already streamed to client, we cannot cleanly switch models
-        if (anyDeltaSent) {
-          onError(err);
-          return;
+        conn = await this.getConnection(currentAccountId);
+      } catch (connErr) {
+        console.warn(`[Antigravity] Could not connect account '${currentAccountId}':`, connErr.message);
+        if (accountManager.config.autoSwitchOnLimit) {
+          accountManager.markRateLimited(currentAccountId, 120);
+          const nextAcc = accountManager.getNextAvailableAccount(currentAccountId);
+          if (nextAcc && !accountsTried.has(nextAcc.id)) {
+            console.log(`[Antigravity] Failover: switching from ${currentAccountId} to ${nextAcc.id}...`);
+            currentAccountId = nextAcc.id;
+            continue;
+          }
         }
-
-        // On network drops, force-reconnect so next attempt uses a fresh connection
-        if (isNetworkDrop) {
-          this.serverUrl = null;
-          this.csrfToken = null;
-          this.lastDiscoveryTime = 0;
-          console.warn(`[Antigravity] Network drop detected (${err.message}). Forcing reconnection...`);
-          await new Promise(r => setTimeout(r, 600));
-          await this.ensureConnected();
-        }
-
-        // If an error occurred before any tokens were sent, failover to the next candidate model
-        if (i + 1 < modelsToTry.length) {
-          const nextModelId = modelsToTry[i + 1];
-          console.warn(`[Antigravity] Model "${currentModelId}" failed (${err.message}). Auto-failing over to "${nextModelId}"...`);
-          await new Promise(r => setTimeout(r, 400));
-          continue;
-        }
-
-        onError(err);
+        onError(connErr);
         return;
       }
+
+      let accountHitLimit = false;
+
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const currentModelId = modelsToTry[i];
+        const modelConfig = resolveModelConfig(currentModelId);
+        const internalModel = modelConfig.model;
+
+        try {
+          await this._runCascadeAttempt({
+            serverUrl: conn.serverUrl,
+            csrfToken: conn.csrfToken,
+            internalModel,
+            cascadeId: isReused ? cascadeId : null,
+            fingerprint,
+            isReused,
+            initialStepOffset,
+            messageToSend,
+            images,
+            tools,
+            tool_choice,
+            hasTools,
+            messages,
+            signal,
+            onDelta: (delta) => {
+              anyDeltaSent = true;
+              onDelta(delta);
+            },
+            onDone
+          });
+          return; // Success!
+        } catch (err) {
+          lastError = err;
+
+          // If the request was aborted by client, DO NOT failover
+          const isAbort = signal?.aborted || err.name === 'AbortError' || /aborted/i.test(err.message);
+          if (isAbort) {
+            console.log(`[Antigravity] Request cancelled by client.`);
+            this.cascadeSessions.drop(fingerprint);
+            onError(err);
+            return;
+          }
+
+          // If tokens were already streamed to client, we cannot switch accounts or models
+          if (anyDeltaSent) {
+            onError(err);
+            return;
+          }
+
+          // Check if error is a rate limit or quota exhaustion
+          const isRateLimit = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted/i.test(err.message);
+          if (isRateLimit && accountManager.config.autoSwitchOnLimit) {
+            accountHitLimit = true;
+            accountManager.markRateLimited(currentAccountId, 600);
+            console.warn(`[Antigravity] Account '${currentAccountId}' hit rate/quota limit on model '${currentModelId}'.`);
+            break; // Break model loop to auto-switch account!
+          }
+
+          // On network drops, force-reconnect
+          const isNetworkDrop = /EOF|ECONNRESET|ECONNREFUSED|fetch failed|UND_ERR/i.test(err.message);
+          if (isNetworkDrop) {
+            this.accountConnections.delete(currentAccountId);
+            if (currentAccountId === 'default') {
+              this.serverUrl = null;
+              this.csrfToken = null;
+              this.lastDiscoveryTime = 0;
+            }
+            console.warn(`[Antigravity] Network drop detected on account '${currentAccountId}'. Reconnecting...`);
+            await new Promise(r => setTimeout(r, 600));
+            try { conn = await this.getConnection(currentAccountId); } catch {}
+          }
+        }
+      }
+
+      if (accountHitLimit && accountManager.config.autoSwitchOnLimit) {
+        const nextAcc = accountManager.getNextAvailableAccount(currentAccountId);
+        if (nextAcc && !accountsTried.has(nextAcc.id)) {
+          console.log(`[Antigravity] Auto-switching from ${currentAccountId} to ${nextAcc.id} (${nextAcc.email || nextAcc.name})...`);
+          currentAccountId = nextAcc.id;
+          continue;
+        }
+      }
+
+      break;
     }
 
     if (lastError) {
@@ -542,6 +813,8 @@ class AntigravityClient {
    * tool calling extraction, and automatic recovery.
    */
   async _runCascadeAttempt({
+    serverUrl,
+    csrfToken,
     internalModel,
     cascadeId,
     fingerprint,
@@ -557,6 +830,8 @@ class AntigravityClient {
     onDelta,
     onDone
   }) {
+    const targetUrl = serverUrl || this.serverUrl;
+    const targetCsrf = csrfToken || this.csrfToken;
     let currentCascadeId = cascadeId;
     let currentStepOffset = isReused ? initialStepOffset : 0;
 
@@ -564,11 +839,11 @@ class AntigravityClient {
     if (!currentCascadeId) {
       currentCascadeId = crypto.randomUUID();
       currentStepOffset = 0;
-      const startResp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/StartCascade`, {
+      const startResp = await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/StartCascade`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-codeium-csrf-token': this.csrfToken
+          'x-codeium-csrf-token': targetCsrf
         },
         body: JSON.stringify({
           cascadeId: currentCascadeId,
@@ -600,11 +875,11 @@ class AntigravityClient {
     }
 
     // 3. Send User Message with plannerConfig model
-    let sendResp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage`, {
+    let sendResp = await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-codeium-csrf-token': this.csrfToken
+        'x-codeium-csrf-token': targetCsrf
       },
       body: JSON.stringify({
         cascadeId: currentCascadeId,
@@ -625,11 +900,11 @@ class AntigravityClient {
       currentCascadeId = crypto.randomUUID();
       currentStepOffset = 0;
 
-      const startResp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/StartCascade`, {
+      const startResp = await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/StartCascade`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-codeium-csrf-token': this.csrfToken
+          'x-codeium-csrf-token': targetCsrf
         },
         body: JSON.stringify({
           cascadeId: currentCascadeId,
@@ -667,11 +942,11 @@ class AntigravityClient {
         }
       }
 
-      sendResp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage`, {
+      sendResp = await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-codeium-csrf-token': this.csrfToken
+          'x-codeium-csrf-token': targetCsrf
         },
         body: JSON.stringify({
           cascadeId: currentCascadeId,
@@ -693,26 +968,42 @@ class AntigravityClient {
     // 4. Poll trajectory steps until response is ready
     let accumulatedText = '';
     let streamedCharCount = 0;
+    let streamedThinkingCount = 0;
     let isFinished = false;
     let finalPlannerToolCalls = null;
     let finalModelUsage = null;
     const maxPolls = 240;
     let pollCount = 0;
     let turnTotalSteps = 0;
+    let pollInterval = 60;
 
     while (!isFinished && pollCount < maxPolls) {
       if (signal?.aborted) {
+        try {
+          this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-codeium-csrf-token': targetCsrf
+            },
+            body: JSON.stringify({
+              cascadeId: currentCascadeId,
+              killBackgroundTasks: true
+            })
+          }).catch(() => {});
+        } catch {}
         throw new Error('Request aborted');
       }
 
-      await new Promise(r => setTimeout(r, 350));
+      await new Promise(r => setTimeout(r, pollInterval));
       pollCount++;
+      if (pollInterval < 250) pollInterval = Math.min(250, Math.floor(pollInterval * 1.35));
 
-      const stepsResp = await this._fetch(`${this.serverUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, {
+      const stepsResp = await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-codeium-csrf-token': this.csrfToken
+          'x-codeium-csrf-token': targetCsrf
         },
         body: JSON.stringify({
           cascadeId: currentCascadeId,
@@ -731,10 +1022,23 @@ class AntigravityClient {
 
         if (type === 'CORTEX_STEP_TYPE_ERROR_MESSAGE') {
           const errDetails = step.errorMessage?.error?.userErrorMessage || step.errorMessage?.error?.shortError || 'Agent error';
+          if (isReused) {
+            this.cascadeSessions.drop(fingerprint);
+          }
           throw new Error(errDetails);
         }
 
         if (type === 'CORTEX_STEP_TYPE_PLANNER_RESPONSE') {
+          // 1. Stream real-time extended thinking deltas to Cursor
+          const thinkingText = step.plannerResponse?.thinking || '';
+          if (thinkingText.length > streamedThinkingCount) {
+            const thinkingDelta = thinkingText.slice(streamedThinkingCount);
+            streamedThinkingCount = thinkingText.length;
+            if (thinkingDelta) {
+              onDelta({ thinking: thinkingDelta });
+            }
+          }
+
           const fullResponse = step.plannerResponse?.modifiedResponse || step.plannerResponse?.response || '';
           if (step.plannerResponse?.toolCalls) {
             finalPlannerToolCalls = step.plannerResponse.toolCalls;
@@ -756,11 +1060,8 @@ class AntigravityClient {
           }
 
           if (step.status === 'CORTEX_STEP_STATUS_DONE') {
-            const hasToolCalls = hasTools && extractToolCalls(fullResponse, step.plannerResponse?.toolCalls, tools, tool_choice);
-            if (fullResponse.trim() || (hasToolCalls && hasToolCalls.length > 0)) {
-              isFinished = true;
-              break;
-            }
+            isFinished = true;
+            break;
           }
         }
       }
