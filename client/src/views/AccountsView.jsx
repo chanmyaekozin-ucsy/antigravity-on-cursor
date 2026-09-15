@@ -188,7 +188,9 @@ export default function AccountsView({ showToast }) {
   };
 
   const selectedAccount = accounts.find(a => a.id === selectedAccountId) || accounts[0];
+  const quotaGroups = quota?.groups || [];
   const modelsQuota = quota?.models || [];
+  const hasQuotaData = quotaGroups.length > 0 || modelsQuota.length > 0;
 
   return (
     <div className="accounts-view">
@@ -396,12 +398,65 @@ export default function AccountsView({ showToast }) {
           <div className="card" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
             Fetching live quota metrics from Google Cloud Code PA API...
           </div>
-        ) : !quota || modelsQuota.length === 0 ? (
+        ) : !quota || !hasQuotaData ? (
           <div className="card" style={{ textAlign: 'center', padding: '32px' }}>
             <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '6px' }}>No Quota Data Available</div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '420px', margin: '0 auto' }}>
               The selected account may not have valid OAuth tokens or has not executed any requests yet.
             </p>
+          </div>
+        ) : quotaGroups.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {quotaGroups.map((grp, gIdx) => (
+              <div key={gIdx} className="card" style={{ padding: '16px 20px' }}>
+                <div style={{ marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <div style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                    {grp.displayName}
+                  </div>
+                  {grp.description && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      {grp.description}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '14px' }}>
+                  {(grp.buckets || []).map((b, bIdx) => {
+                    const pct = Math.round((b.remainingFraction ?? 1) * 100);
+                    const color = pct > 50 ? 'var(--success)' : pct > 20 ? 'var(--warning)' : 'var(--danger)';
+                    return (
+                      <div
+                        key={bIdx}
+                        style={{
+                          background: 'var(--bg-subtle)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: '600', fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                            {b.displayName || b.bucketId}
+                          </span>
+                          <span style={{ fontWeight: '700', fontSize: '0.95rem', color }}>
+                            {pct}%
+                          </span>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width 0.3s ease' }} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          <span>Window: {b.window || 'standard'}</span>
+                          {b.resetTime && <span>Resets: {new Date(b.resetTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: '14px' }}>

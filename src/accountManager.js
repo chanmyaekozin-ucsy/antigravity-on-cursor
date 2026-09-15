@@ -688,13 +688,21 @@ class AccountManager {
    * Resolve an initial healthy account, gracefully falling back if preferred is missing credentials or rate-limited
    */
   getInitialAccount(preferredId = null, modelId = null) {
-    const targetId = preferredId || this.config.activeAccountId || 'default';
-    if (this.hasValidCredentials(targetId)) {
-      const rlimit = this.getRateLimitInfo(targetId, modelId);
-      if (!rlimit.isLimited) {
-        return targetId;
+    let targetId = preferredId || this.config.activeAccountId || 'default';
+    if (!this.hasValidCredentials(targetId)) {
+      if (this.hasValidCredentials('default')) {
+        targetId = 'default';
+      } else {
+        const firstValid = (this.config.accounts || []).find(a => this.hasValidCredentials(a.id));
+        targetId = firstValid ? firstValid.id : 'default';
       }
     }
+
+    const rlimit = this.getRateLimitInfo(targetId, modelId);
+    if (!rlimit.isLimited) {
+      return targetId;
+    }
+
     const next = this.getNextAvailableAccount(targetId, null, modelId);
     if (next) return next.id;
     return targetId;
@@ -708,9 +716,8 @@ class AccountManager {
     const accounts = this.config.accounts || [];
     const allAccountIds = [];
 
-    // Only include default if it has valid credentials AND is not a duplicate copy of a secondary account
-    const isDup = this._isDefaultDuplicateOfSecondary();
-    if (this.hasValidCredentials('default') && !isDup) {
+    // Include default if it has valid credentials
+    if (this.hasValidCredentials('default')) {
       allAccountIds.push('default');
     }
     for (const a of accounts) {
