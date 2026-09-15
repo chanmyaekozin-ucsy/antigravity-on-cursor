@@ -864,17 +864,28 @@ class AntigravityClient {
             return;
           }
 
-          // Recoverable tool-execution error (e.g. Cascade tried to read a local Mac image
-          // that doesn't exist on the VPS). Retry once with a fresh session and no images
-          // so the model can still respond to the user's actual text request.
-          if (err.isRecoverableToolError && !turn._retriedWithoutImages) {
-            console.warn(`[Antigravity] Recoverable tool error (image/file path): retrying without images...`);
-            turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false });
-            turn.images = [];
-            turn._retriedWithoutImages = true;
-            isReused = false;
-            cascadeId = null;
-            continue;
+          // Recoverable tool-execution error (e.g. Cascade tried to read a local Mac
+          // file that doesn't exist on the VPS — images, log files, etc.).
+          if (err.isRecoverableToolError) {
+            if (!turn._retriedWithoutImages) {
+              // First time: retry with a fresh session and no images.
+              console.warn(`[Antigravity] Recoverable tool error (local file path): retrying without images...`);
+              turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false, modelName: internalModel });
+              turn.images = [];
+              turn._retriedWithoutImages = true;
+              turn._modelName = internalModel;
+              isReused = false;
+              cascadeId = null;
+              continue;
+            } else {
+              // Retry also failed — Cascade keeps trying to read local Mac files.
+              // Emit an empty finish so Cursor doesn't show the error banner.
+              // The user will see nothing, which is better than a confusing
+              // "retry_no_images: failed to read file" error.
+              console.warn(`[Antigravity] Recoverable tool error persisted after retry — finishing silently.`);
+              onDone(null);
+              return;
+            }
           }
 
           // If tokens were already streamed to client, we cannot switch accounts or models
@@ -963,12 +974,25 @@ class AntigravityClient {
 
     if (lastError) {
       this.cascadeSessions.drop(fingerprint);
-      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(lastError.message || '') && !/unknown model key|model not found/i.test(lastError.message || '');
+      // Strip internal retry tag prefix from user-facing message
+      const rawMsg = (lastError.message || '').replace(/^retry_no_images:\s*/i, '');
+      const cleanError = rawMsg !== lastError.message ? new Error(rawMsg) : lastError;
+
+      // If the final error is still a recoverable tool error (Cascade kept trying to
+      // read local Mac paths after all retries), finish silently rather than showing
+      // the user a confusing error banner.
+      if (lastError.isRecoverableToolError) {
+        console.warn(`[Antigravity] Recoverable tool error exhausted all retries — finishing silently.`);
+        onDone(null);
+        return;
+      }
+
+      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(cleanError.message || '') && !/unknown model key|model not found/i.test(cleanError.message || '');
       if (isQuota) {
         const friendlyError = new Error(`Google Antigravity quota/capacity limit reached on model '${modelId}'. Tip: Switch to Claude Sonnet 4.6 (Thinking) or Gemini Pro in Cursor, or add another Google account in the dashboard.`);
         onError(friendlyError);
       } else {
-        onError(lastError);
+        onError(cleanError);
       }
     }
   }

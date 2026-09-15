@@ -500,10 +500,13 @@ function formatMessage(m) {
   }
   if (m.role === 'user') {
     let text = extractText(m.content);
-    // Compress Cursor's giant context dumps so the model actually sees the question
+    // Compress Cursor's giant context dumps so the model actually sees the question.
+    // Use a larger head budget (4000) so open-file contents (e.g. the log file the
+    // user has open) survive truncation — preventing Cascade from trying to natively
+    // Read those files from the VPS filesystem where they don't exist.
     if (text.length > 6000) {
       const q = extractPrimaryUserQuery([{ role: 'user', content: m.content }]);
-      const head = text.slice(0, 1800);
+      const head = text.slice(0, 4000);
       text = `${head}\n\n…[truncated large Cursor context]…\n\n[Actual user request]\n${q || text.slice(-1200)}`;
     }
     const imageNote = Array.isArray(m.content) && m.content.some(p => p?.type === 'image_url' || p?.type === 'input_image')
