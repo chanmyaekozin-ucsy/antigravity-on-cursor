@@ -305,6 +305,13 @@ class AccountManager {
     // Setup dedicated directory for this account
     this._writeAccountTokenDir(id, tokenObj);
 
+    // On Linux or when DEFAULT_TOKEN_PATH is missing, also mirror to DEFAULT_TOKEN_PATH
+    if (process.platform === 'linux' || !fs.existsSync(DEFAULT_TOKEN_PATH)) {
+      try {
+        fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tokenObj, null, 2), 'utf-8');
+      } catch {}
+    }
+
     this._saveConfig();
     console.log(`[AccountManager] Added Google Account: ${newAccount.name} (${newAccount.email || id})`);
     return newAccount;
@@ -398,6 +405,17 @@ class AccountManager {
     this.config.activeAccountId = accountId;
     this._saveConfig();
     console.log(`[AccountManager] Active account set to: ${accountId}`);
+
+    // On Linux or when DEFAULT_TOKEN_PATH is absent/stale, sync active token to DEFAULT_TOKEN_PATH
+    if (process.platform === 'linux' || !fs.existsSync(DEFAULT_TOKEN_PATH)) {
+      const acc = this.getAccount(accountId);
+      const tok = acc?.token?.token ? acc.token : acc?.token ? { token: acc.token, auth_method: 'consumer' } : null;
+      if (tok) {
+        try {
+          fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tok, null, 2), 'utf-8');
+        } catch {}
+      }
+    }
 
     // Sync active account's token into macOS Keychain so language servers match
     this.syncActiveAccountToKeychain().catch(() => {});

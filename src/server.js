@@ -216,6 +216,7 @@ app.post('/api/accounts', (req, res) => {
       email,
       token: typeof tokenJson === 'string' ? JSON.parse(tokenJson) : tokenJson
     });
+    antigravity.reset();
     res.json(created);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -239,6 +240,7 @@ app.post('/api/accounts/active', (req, res) => {
   if (!accountId) return res.status(400).json({ error: 'Missing accountId' });
   try {
     accountManager.setActiveAccount(accountId);
+    antigravity.reset();
     res.json({ success: true, activeAccountId: accountId });
   } catch (err) {
     res.status(400).json({ error: err.message });

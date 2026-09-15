@@ -152,10 +152,29 @@ class AntigravityClient {
     this.serverUrl = null;
     this.csrfToken = null;
     this.pid = null;
+    this.standalonePid = null;
     this.lastDiscoveryTime = 0;
     this.accountConnections = new Map();
     this._pendingLaunches = new Map(); // deduplicates concurrent server spawns per account
     this.cascadeSessions = new CascadeSessionStore();
+  }
+
+  /**
+   * Reset all cached connections and language server processes so new tokens take effect immediately
+   */
+  reset() {
+    if (this.standalonePid) {
+      try { process.kill(this.standalonePid, 'SIGTERM'); } catch {}
+      this.standalonePid = null;
+    }
+    this.serverUrl = null;
+    this.csrfToken = null;
+    this.pid = null;
+    this.lastDiscoveryTime = 0;
+    for (const [id] of this.accountConnections) {
+      this.cleanupAccount(id);
+    }
+    console.log('[Antigravity] Connection pool reset for new account/token sync');
   }
 
   /**
@@ -554,6 +573,7 @@ class AntigravityClient {
           this.serverUrl = testUrl;
           this.csrfToken = csrf;
           this.pid = child.pid;
+          this.standalonePid = child.pid;
           this.lastDiscoveryTime = Date.now();
           console.log(`[Antigravity] Standalone primary server started on port ${port} (PID: ${child.pid})`);
           return true;
