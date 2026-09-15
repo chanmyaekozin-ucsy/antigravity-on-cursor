@@ -442,6 +442,9 @@ app.get('/api/proxy/status', async (req, res) => {
 });
 
 const server = app.listen(PORT, async () => {
+  const isTunnelDisabled = process.env.DISABLE_TUNNEL === 'true' || process.env.ENABLE_TUNNEL === 'false';
+  const publicUrl = process.env.PUBLIC_URL || process.env.APP_URL;
+
   console.log(`
 ==========================================================
    🚀 Antigravity Cursor Bridge & Dashboard Running!
@@ -449,9 +452,9 @@ const server = app.listen(PORT, async () => {
   • Web Dashboard:    http://localhost:${PORT}${process.env.DASHBOARD_USERNAME && process.env.DASHBOARD_PASSWORD ? ' (🔒 Protected: ' + process.env.DASHBOARD_USERNAME + ')' : ' (🔓 Public)'}
   • Cursor Base URL:  http://localhost:${PORT}/v1
   • Default API Key:  sk-antigravity-default
-
+${isTunnelDisabled ? `  • Public Domain:    ${publicUrl ? publicUrl : 'Managed via Coolify / Reverse Proxy'}` : `
   ⚡ Starting Serveo SSH Tunnel (bypasses Cursor's private-network block)...
-     Your public Cursor Base URL will appear below shortly.
+     Your public Cursor Base URL will appear below shortly.`}
 
   Models Available in Cursor:
     - dominate-gemini-3.8-flash-high  (Gemini 3.8 Flash High)

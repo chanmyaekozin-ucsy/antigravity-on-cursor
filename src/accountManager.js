@@ -295,6 +295,13 @@ class AccountManager {
 
     this.config.accounts.push(newAccount);
 
+    // If on Linux or no active account set yet, make this the active account
+    if (!this.config.activeAccountId || this.config.activeAccountId === 'default') {
+      this.config.activeAccountId = id;
+      if (email) this.config.primaryEmail = email;
+      if (name) this.config.primaryName = name;
+    }
+
     // Setup dedicated directory for this account
     this._writeAccountTokenDir(id, tokenObj);
 
@@ -315,6 +322,12 @@ class AccountManager {
         JSON.stringify(tokenObj, null, 2),
         'utf-8'
       );
+      // On Linux/Docker, if primary default token is missing, also write to DEFAULT_TOKEN_PATH
+      if (!fs.existsSync(DEFAULT_TOKEN_PATH)) {
+        const defaultDir = path.dirname(DEFAULT_TOKEN_PATH);
+        if (!fs.existsSync(defaultDir)) fs.mkdirSync(defaultDir, { recursive: true });
+        fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tokenObj, null, 2), 'utf-8');
+      }
     } catch (err) {
       console.error(`[AccountManager] Failed to write account directory for ${accountId}:`, err.message);
     }

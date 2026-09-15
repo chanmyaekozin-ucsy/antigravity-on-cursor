@@ -159,9 +159,10 @@ class AntigravityClient {
       return true;
     }
 
-    // Try finding running language_server_macos_arm process
+    // Try finding running language server process (macOS or Linux)
     try {
-      const psOutput = execSync("ps aux | grep -i 'language_server_macos_arm' | grep -v grep", { encoding: 'utf-8' });
+      const binPattern = process.platform === 'darwin' ? 'language_server_macos' : 'language_server_';
+      const psOutput = execSync(`ps aux | grep -i '${binPattern}' | grep -v grep`, { encoding: 'utf-8' });
       const lines = psOutput.trim().split('\n').filter(l => Boolean(l) && !l.includes('/accounts/'));
 
       // Sort: prefer daily-cloudcode-pa (workspace server with Cascade) over stable cloudcode-pa (geo-restricted)
