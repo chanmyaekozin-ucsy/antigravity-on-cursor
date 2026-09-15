@@ -765,19 +765,28 @@ class AntigravityClient {
 
     let lastError = null;
     let anyDeltaSent = false;
-    let turn = buildNativeTurn({
-      messages,
-      tools,
-      tool_choice,
-      mode: resolvedMode,
-      reuseSession: isReused
-    });
+    let turn = null; // built per-model below so modelName is available
 
     for (let m = 0; m < modelsToTry.length; m++) {
       const currentModelId = modelsToTry[m];
       const modelConfig = resolveModelConfig(currentModelId);
       const internalModel = modelConfig.model;
       const accountsTriedForModel = new Set();
+
+      // Build (or rebuild) the turn now that we know the actual model name so
+      // the identity directive uses the real model rather than Cascade's default.
+      if (!turn || turn._modelName !== internalModel) {
+        turn = buildNativeTurn({
+          messages,
+          tools,
+          tool_choice,
+          mode: resolvedMode,
+          reuseSession: isReused,
+          modelName: internalModel
+        });
+        turn._modelName = internalModel;
+      }
+
 
       // Resolve a healthy account specifically for this model family
       let currentAccountId = accountManager.getInitialAccount(accountId, currentModelId);
