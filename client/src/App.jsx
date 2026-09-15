@@ -4,7 +4,6 @@ import TabNav from './components/TabNav.jsx';
 import Toast from './components/Toast.jsx';
 import QuickstartView from './views/QuickstartView.jsx';
 import ModelsView from './views/ModelsView.jsx';
-import QuotaView from './views/QuotaView.jsx';
 import KeysView from './views/KeysView.jsx';
 import AccountsView from './views/AccountsView.jsx';
 
@@ -66,9 +65,8 @@ export default function App() {
           />
         )}
         {activeTab === 'models' && <ModelsView onCopy={handleCopy} />}
-        {activeTab === 'quota' && <QuotaView />}
-        {activeTab === 'keys' && <KeysView onCopy={handleCopy} showToast={showToast} />}
         {activeTab === 'accounts' && <AccountsView showToast={showToast} />}
+        {activeTab === 'keys' && <KeysView onCopy={handleCopy} showToast={showToast} />}
       </main>
 
       <Toast toast={toast} />

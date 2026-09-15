@@ -4,9 +4,8 @@ export default function TabNav({ activeTab, onTabChange }) {
   const tabs = [
     { id: 'quickstart', label: 'Quickstart' },
     { id: 'models', label: 'Models Catalog' },
-    { id: 'quota', label: 'Live Quota' },
-    { id: 'keys', label: 'API Keys' },
-    { id: 'accounts', label: 'Google Accounts' }
+    { id: 'accounts', label: 'Accounts & Quota' },
+    { id: 'keys', label: 'API Keys' }
   ];
 
   return (
