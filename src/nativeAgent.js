@@ -652,10 +652,8 @@ npm run dev
 ## 🛠️ Project Structure
 
 \`\`\`
-├── public/                 # Web Dashboard UI
-│   ├── index.html          # Dashboard interface
-│   ├── app.js              # Dashboard logic & metrics
-│   └── style.css           # Dark-mode styling
+├── client/                 # React 19 web dashboard source
+├── dist/                   # Production distribution bundle
 ├── src/                    # Backend server & engine
 │   ├── server.js           # Express API server
 │   ├── openaiAdapter.js    # OpenAI format translation & SSE streaming

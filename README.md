@@ -28,8 +28,8 @@
   - Generate virtual local API keys (`sk-antigravity-...`).
 - **🚇 Remote Access Tunneling (`tunnelManager.js`)**:
   - Instant SSH-based tunneling (Serveo) to expose your bridge for remote machines or paired development.
-- **📊 Real-Time Web Dashboard (`public/`)**:
-  - Built-in web UI to inspect latency, monitor token usage, switch active accounts, and toggle models on the fly.
+- **📊 Classical Premium Web Dashboard (`client/` & `dist/`)**:
+  - Built-in React 19 web UI to inspect model quotas, monitor token limits, switch active accounts, and manage API keys.
 
 ---
 
@@ -114,10 +114,10 @@ From the dashboard, you can:
 ## 📂 Project Structure
 
 ```
-├── public/                 # Dashboard web assets (HTML, CSS, JS)
+├── client/                 # React 19 web dashboard source
 │   ├── index.html
-│   ├── style.css
-│   └── app.js
+│   └── src/
+├── dist/                   # Production distribution bundle
 ├── src/                    # Core bridge logic
 │   ├── server.js           # Express app & route definitions
 │   ├── nativeAgent.js      # Cursor mode orchestration & context management

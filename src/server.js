@@ -125,10 +125,8 @@ app.use((req, res, next) => {
   return res.status(401).send('401 Unauthorized - Access to Antigravity Dashboard requires valid credentials.');
 });
 
-// Serve static files for Dashboard (prefers React built dist/, falls back to public/)
-const distDir = path.join(__dirname, '..', 'dist');
-const publicDir = path.join(__dirname, '..', 'public');
-const staticDir = fs.existsSync(distDir) ? distDir : publicDir;
+// Serve static files for React Dashboard
+const staticDir = path.join(__dirname, '..', 'dist');
 app.use(express.static(staticDir));
 
 // ==========================================

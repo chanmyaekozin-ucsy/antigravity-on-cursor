@@ -41,7 +41,6 @@ RUN npm install --omit=dev
 
 # Copy application code
 COPY src/ ./src/
-COPY public/ ./public/
 COPY dist/ ./dist/
 
 # Environment configuration
