@@ -1,6 +1,7 @@
 import { antigravity, MODEL_MAP } from './antigravityClient.js';
 import { accountManager } from './accountManager.js';
 import { cleanToolCallText } from './nativeAgent.js';
+import { normalizeCompletionResult, resolveStreamError } from './openaiProtocol.js';
 import crypto from 'crypto';
 
 export async function handleModels(req, res) {
@@ -104,8 +105,10 @@ export async function handleChatCompletions(req, res) {
 
   // Abort controller only if client closes connection prematurely
   const abortController = new AbortController();
+  let abortSource = null;
   res.on('close', () => {
     if (!res.writableEnded) {
+      abortSource = 'client';
       abortController.abort();
     }
   });
@@ -136,8 +139,8 @@ export async function handleChatCompletions(req, res) {
     let lastTokenTime = Date.now();
     let streamedContentLen = 0;
 
-    const emitDelta = (text, type = 'content') => {
-      if (!text || res.writableEnded || abortController.signal.aborted) return;
+    const emitDelta = (text, type = 'content', force = false) => {
+      if (!text || res.writableEnded || (abortController.signal.aborted && !force)) return;
       lastTokenTime = Date.now();
       if (type === 'content') {
         streamedContentLen += text.length;
@@ -172,6 +175,7 @@ export async function handleChatCompletions(req, res) {
       const now = Date.now();
       if (now - lastTokenTime >= INACTIVITY_TIMEOUT_MS || now - requestStartTime >= HARD_TIMEOUT_MS) {
         console.warn(`[OpenAIAdapter] Inactivity timeout reached (${Math.round((now - requestStartTime) / 1000)}s). Aborting stream.`);
+        abortSource = 'timeout';
         abortController.abort(new Error('Timed out waiting for Antigravity model response.'));
         return;
       }
@@ -208,7 +212,8 @@ export async function handleChatCompletions(req, res) {
             emitDelta(deltaPayload.content, 'content');
           }
         },
-        onDone: ({ fullText = '', usage, toolCalls }) => {
+        onDone: (result) => {
+          const { fullText, usage, toolCalls } = normalizeCompletionResult(result);
           cleanup();
           if (res.writableEnded) return;
 
@@ -341,15 +346,17 @@ export async function handleChatCompletions(req, res) {
         },
         onError: (err) => {
           cleanup();
-          if (res.writableEnded || abortController.signal.aborted) {
+          if (res.writableEnded) return;
+          const effectiveError = resolveStreamError(err, abortSource, abortController.signal.reason);
+          if (!effectiveError) {
             console.log('[OpenAIAdapter] Request ended (client disconnected).');
             return;
           }
-          console.error('[OpenAIAdapter] Completion stream error:', err.message);
+          console.error('[OpenAIAdapter] Completion stream error:', effectiveError.message);
 
           // Emit the error clearly to Cursor chat as visible content so the user is informed
-          const errMsg = `\n\n⚠️ **Antigravity Bridge Error**: ${err.message}`;
-          emitDelta(errMsg, 'content');
+          const errMsg = `\n\n⚠️ **Antigravity Bridge Error**: ${effectiveError.message}`;
+          emitDelta(errMsg, 'content', true);
 
           const finishChunk = {
             id: completionId,
@@ -371,10 +378,11 @@ export async function handleChatCompletions(req, res) {
       });
     } catch (err) {
       cleanup();
-      if (!res.writableEnded) {
-        console.error('[OpenAIAdapter] Error starting completion:', err.message);
-        const errMsg = `\n\n⚠️ **Antigravity Bridge Error**: ${err.message}`;
-        emitDelta(errMsg, 'content');
+      const effectiveError = resolveStreamError(err, abortSource, abortController.signal.reason);
+      if (!res.writableEnded && effectiveError) {
+        console.error('[OpenAIAdapter] Error starting completion:', effectiveError.message);
+        const errMsg = `\n\n⚠️ **Antigravity Bridge Error**: ${effectiveError.message}`;
+        emitDelta(errMsg, 'content', true);
         const finishChunk = {
           id: completionId,
           object: 'chat.completion.chunk',
@@ -413,7 +421,8 @@ export async function handleChatCompletions(req, res) {
           if (typeof delta === 'string') accumulated += delta;
           else if (delta?.content) accumulated += delta.content;
         },
-        onDone: ({ fullText, usage, toolCalls }) => {
+        onDone: (result) => {
+          const { fullText, usage, toolCalls } = normalizeCompletionResult(result);
           accumulated = fullText;
           completionUsage = usage;
           resultToolCalls = toolCalls;

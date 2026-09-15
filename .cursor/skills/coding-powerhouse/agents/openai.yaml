@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coding Powerhouse"
+  short_description: "Elite end-to-end software engineering workflow"
+  default_prompt: "Use $coding-powerhouse to solve this coding task completely and verify the result."

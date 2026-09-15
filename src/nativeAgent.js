@@ -14,9 +14,12 @@ export const AGENT_MODES = Object.freeze({
   ASK: 'ask'
 });
 
-const SYSTEM_BUDGET = 12000;
-const HISTORY_BUDGET = 48000;
-const TOOL_RESULT_BUDGET = 14000;
+// Cursor places rules, skills, workspace metadata, and orchestration guidance in
+// system context. Preserve enough of it for project skills without crowding out
+// the active conversation and tool results.
+const SYSTEM_BUDGET = 32000;
+const HISTORY_BUDGET = 64000;
+const TOOL_RESULT_BUDGET = 24000;
 const MAX_IMAGES = 6;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 

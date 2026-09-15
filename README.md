@@ -104,6 +104,16 @@ This is the default architecture. Each request is stateless at the Antigravity C
 
 Do not enable `ANTIGRAVITY_SESSION_REUSE` for normal VPS use. It exists only for compatibility experiments and can reintroduce stale Antigravity-native agent state.
 
+### Coding Powerhouse skill
+
+The repository includes a project skill at `.cursor/skills/coding-powerhouse`. Cursor discovers it automatically after opening or reloading the project.
+
+- Invoke `/coding-powerhouse` for one task.
+- Use it as a Custom Mode to keep its engineering workflow active for an entire session.
+- It covers feature work, debugging, refactoring, review, performance, testing, migrations, verification, and strict Cursor/VPS tool ownership.
+
+The bridge reserves a larger system-context budget so Cursor rules, skills, and tool guidance survive translation to Antigravity.
+
 ### Remote Cursor access
 
 Cursor may send custom-model requests through its servers, which cannot reach your machine's `localhost`. If direct local configuration fails:
