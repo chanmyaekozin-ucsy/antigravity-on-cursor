@@ -6,6 +6,7 @@ import QuickstartView from './views/QuickstartView.jsx';
 import ModelsView from './views/ModelsView.jsx';
 import KeysView from './views/KeysView.jsx';
 import AccountsView from './views/AccountsView.jsx';
+import LoginView from './views/LoginView.jsx';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('quickstart');
@@ -67,6 +68,12 @@ export default function App() {
         {activeTab === 'models' && <ModelsView onCopy={handleCopy} />}
         {activeTab === 'accounts' && <AccountsView showToast={showToast} />}
         {activeTab === 'keys' && <KeysView onCopy={handleCopy} showToast={showToast} />}
+        {activeTab === 'login' && (
+          <LoginView
+            onNavigateToDashboard={() => setActiveTab('quickstart')}
+            showToast={showToast}
+          />
+        )}
       </main>
 
       <Toast toast={toast} />

@@ -77,18 +77,24 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Serve static files for React Dashboard (must be served before auth guard so the SPA loads without browser auth dialogs)
+const staticDir = path.join(__dirname, '..', 'dist');
+app.use(express.static(staticDir));
+
 // ==========================================
-// Dashboard Authentication Guard (HTTP Basic)
+// Dashboard Authentication Guard
 // ==========================================
 app.use((req, res, next) => {
-  // Routes completely exempt from dashboard basic auth:
-  // - /v1/* : OpenAI-compatible endpoints used by Cursor IDE (secured by Bearer API keys)
+  // Routes completely exempt from dashboard auth:
+  // - /v1/* : OpenAI-compatible endpoints used by Cursor IDE
   // - /health : Docker/Coolify health monitoring
   // - /oauth-callback : Google OAuth browser redirect handler
+  // - /api/status : Basic status check for web dashboard
   if (
     req.path.startsWith('/v1') ||
     req.path === '/health' ||
-    req.path === '/oauth-callback'
+    req.path === '/oauth-callback' ||
+    req.path === '/api/status'
   ) {
     return next();
   }
@@ -101,7 +107,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  const authHeader = req.headers.authorization || '';
+  const authHeader = req.headers.authorization || req.headers['x-dashboard-key'] || '';
   if (authHeader.startsWith('Basic ')) {
     try {
       const credentials = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
@@ -116,18 +122,16 @@ app.use((req, res, next) => {
     } catch {
       // Malformed header, fall through to 401
     }
+  } else if (authHeader === expectedPass || authHeader === `${expectedUser}:${expectedPass}`) {
+    return next();
   }
 
-  res.setHeader('WWW-Authenticate', 'Basic realm="Antigravity Dashboard", charset="UTF-8"');
+  // Return 401 JSON WITHOUT WWW-Authenticate header to prevent native browser login alert popup
   if (req.path.startsWith('/api/')) {
-    return res.status(401).json({ error: 'Unauthorized. Dashboard credentials required.' });
+    return res.status(401).json({ error: 'Unauthorized. Dashboard credentials required.', authRequired: true });
   }
   return res.status(401).send('401 Unauthorized - Access to Antigravity Dashboard requires valid credentials.');
 });
-
-// Serve static files for React Dashboard
-const staticDir = path.join(__dirname, '..', 'dist');
-app.use(express.static(staticDir));
 
 // ==========================================
 // OpenAI-Compatible v1 Endpoints (For Cursor)

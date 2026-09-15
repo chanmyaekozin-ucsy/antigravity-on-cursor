@@ -846,7 +846,11 @@ class AntigravityClient {
             messages,
             signal,
             onDelta: (delta) => {
-              anyDeltaSent = true;
+              if (typeof delta === 'string' && delta.trim().length > 0) {
+                anyDeltaSent = true;
+              } else if (delta?.content && typeof delta.content === 'string' && delta.content.trim().length > 0) {
+                anyDeltaSent = true;
+              }
               onDelta(delta);
             },
             onDone
@@ -880,17 +884,21 @@ class AntigravityClient {
             } else {
               // Retry also failed — Cascade keeps trying to read local Mac files.
               // Emit an empty finish so Cursor doesn't show the error banner.
-              // The user will see nothing, which is better than a confusing
-              // "retry_no_images: failed to read file" error.
               console.warn(`[Antigravity] Recoverable tool error persisted after retry — finishing silently.`);
               onDone(null);
               return;
             }
           }
 
-          // If tokens were already streamed to client, we cannot switch accounts or models
+          // If tokens were already streamed to client, check if this is an upstream network drop
           if (anyDeltaSent) {
             this.cascadeSessions.drop(fingerprint);
+            const isStreamDrop = /EOF|ECONNRESET|ECONNREFUSED|fetch failed|UND_ERR|streamGenerateContent|cloudcode-pa/i.test(err.message);
+            if (isStreamDrop) {
+              console.warn(`[Antigravity] Network stream drop after content was already sent. Concluding response gracefully.`);
+              onDone({ fullText: '', usage: null, toolCalls: null });
+              return;
+            }
             onError(err);
             return;
           }
@@ -951,8 +959,9 @@ class AntigravityClient {
             }
           }
 
-          // On network drops, force-reconnect
-          const isNetworkDrop = /EOF|ECONNRESET|ECONNREFUSED|fetch failed|UND_ERR/i.test(err.message);
+          // On network drops (EOF, ECONNRESET, Google Cloud Code stream drops):
+          // Reconnect, drop stale cascade session, and automatically retry
+          const isNetworkDrop = /EOF|ECONNRESET|ECONNREFUSED|fetch failed|UND_ERR|streamGenerateContent|cloudcode-pa/i.test(err.message);
           if (isNetworkDrop) {
             this.accountConnections.delete(currentAccountId);
             if (currentAccountId === 'default') {
@@ -960,9 +969,30 @@ class AntigravityClient {
               this.csrfToken = null;
               this.lastDiscoveryTime = 0;
             }
-            console.warn(`[Antigravity] Network drop detected on account '${currentAccountId}'. Reconnecting...`);
-            await new Promise(r => setTimeout(r, 600));
+            this.cascadeSessions.drop(fingerprint);
+            console.warn(`[Antigravity] Network drop detected on account '${currentAccountId}' (${err.message.slice(0, 120)}). Reconnecting...`);
+            await new Promise(r => setTimeout(r, 800));
             try { conn = await this.getConnection(currentAccountId); } catch {}
+
+            // Retry once on this account with a fresh session
+            if (!turn._retriedOnNetworkDrop) {
+              turn._retriedOnNetworkDrop = true;
+              isReused = false;
+              cascadeId = null;
+              turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false, modelName: internalModel });
+              continue;
+            }
+
+            // If retry on this account also failed, switch to another available account
+            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel, currentModelId);
+            if (nextAcc) {
+              console.log(`[Antigravity] Network drop persisted: switching from ${currentAccountId} to ${nextAcc.id}...`);
+              currentAccountId = nextAcc.id;
+              isReused = false;
+              cascadeId = null;
+              turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false });
+              continue;
+            }
           }
         }
       }

@@ -5,7 +5,8 @@ export default function TabNav({ activeTab, onTabChange }) {
     { id: 'quickstart', label: 'Quickstart' },
     { id: 'models', label: 'Models Catalog' },
     { id: 'accounts', label: 'Accounts & Quota' },
-    { id: 'keys', label: 'API Keys' }
+    { id: 'keys', label: 'API Keys' },
+    { id: 'login', label: 'Login' }
   ];
 
   return (

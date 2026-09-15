@@ -724,14 +724,77 @@ export function scrubAssistantText(text) {
 
 export function cleanToolCallText(text) {
   if (!text) return '';
-  return text
-    .replace(/```(?:json)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?\}\s*```/g, '')
-    .replace(/```(?:json)?\s*\{\s*"(?:name|tool|function)"\s*:\s*"[^"]+"\s*,\s*"(?:arguments|parameters|args)"[\s\S]*?\}\s*```/g, '')
+  let result = text;
+
+  // 1. Strip fenced blocks containing tool calls
+  result = result.replace(/```(?:json)?\s*\{[\s\S]*?"(?:tool_calls|name|tool|function)"[\s\S]*?\}\s*```/g, '');
+
+  // 2. Strip raw JSON objects with "tool_calls" using scanJsonObject
+  let pos = 0;
+  while (pos < result.length) {
+    const keyIdx = result.indexOf('"tool_calls"', pos);
+    if (keyIdx === -1) break;
+    let objStart = -1;
+    for (let i = keyIdx - 1; i >= 0; i--) {
+      if (result[i] === '{') { objStart = i; break; }
+      if (result[i] !== ' ' && result[i] !== '\n' && result[i] !== '\r' && result[i] !== '\t') break;
+    }
+    if (objStart !== -1) {
+      const scanned = scanJsonObject(result, objStart);
+      if (scanned) {
+        result = result.slice(0, objStart) + result.slice(objStart + scanned.length);
+        pos = objStart;
+        continue;
+      }
+    }
+    pos = keyIdx + 12;
+  }
+
+  // 3. Strip raw JSON objects with "function_call"
+  pos = 0;
+  while (pos < result.length) {
+    const keyIdx = result.indexOf('"function_call"', pos);
+    if (keyIdx === -1) break;
+    let objStart = -1;
+    for (let i = keyIdx - 1; i >= 0; i--) {
+      if (result[i] === '{') { objStart = i; break; }
+      if (result[i] !== ' ' && result[i] !== '\n' && result[i] !== '\r' && result[i] !== '\t') break;
+    }
+    if (objStart !== -1) {
+      const scanned = scanJsonObject(result, objStart);
+      if (scanned) {
+        result = result.slice(0, objStart) + result.slice(objStart + scanned.length);
+        pos = objStart;
+        continue;
+      }
+    }
+    pos = keyIdx + 15;
+  }
+
+  // 4. Strip single raw tool objects {"name": "...", "arguments": ...}
+  pos = 0;
+  while (pos < result.length) {
+    const m = result.slice(pos).match(/\{\s*"(?:name|tool|function)"\s*:\s*"[^"]+"\s*,\s*"(?:arguments|parameters|args)"/);
+    if (!m || m.index === undefined) break;
+    const objStart = pos + m.index;
+    const scanned = scanJsonObject(result, objStart);
+    if (scanned) {
+      result = result.slice(0, objStart) + result.slice(objStart + scanned.length);
+      pos = objStart;
+      continue;
+    }
+    pos = objStart + 1;
+  }
+
+  // 5. Strip XML style tags
+  result = result
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
     .replace(/<tool_call_name>[\s\S]*?<\/tool_call_name>/gi, '')
     .replace(/<tool_code>[\s\S]*?<\/tool_code>/gi, '')
     .replace(/<\/?tool_response>/gi, '')
     .trim();
+
+  return result;
 }
 
 function stripAgOnly(args) {
@@ -1073,14 +1136,17 @@ export function extractToolCalls(text, prToolCalls, availableTools = [], tool_ch
     }
   }
 
-  // 2) Single fenced JSON tool
-  const single = text.match(/```(?:json)?\s*(\{\s*"(?:name|tool|function)"\s*:\s*"[^"]+"\s*,\s*"(?:arguments|parameters|args)"[\s\S]*?\})\s*```/);
-  if (single) {
-    try {
-      const parsed = JSON.parse(single[1]);
-      const call = toToolCall(parsed.name || parsed.tool || parsed.function, parsed.arguments || parsed.parameters || parsed.args || {}, 0, toolNames);
-      if (call) return [call];
-    } catch { /* continue */ }
+  // 2) Single JSON tool (fenced or unfenced)
+  const singleMatch = text.match(/\{\s*"(?:name|tool|function)"\s*:\s*"[^"]+"\s*,\s*"(?:arguments|parameters|args)"/);
+  if (singleMatch && singleMatch.index !== undefined) {
+    const extracted = scanJsonObject(text, singleMatch.index);
+    if (extracted) {
+      try {
+        const parsed = JSON.parse(extracted);
+        const call = toToolCall(parsed.name || parsed.tool || parsed.function, parsed.arguments || parsed.parameters || parsed.args || {}, 0, toolNames);
+        if (call) return [call];
+      } catch { /* continue */ }
+    }
   }
 
   // 3) <tool_call>...</tool_call>
@@ -1171,10 +1237,53 @@ export function parseGoogleToolExpression(expr, toolNames = []) {
 
 /**
  * Decide whether content streaming should pause because a tool payload started.
+ * Handles:
+ * 1. Definitive fenced JSON tool payload (starts at ```)
+ * 2. Definitive raw JSON tool payload (starts at { or [)
+ * 3. Definitive XML tool tags (starts at <)
+ * 4. Streaming candidate prefixes at the tail of text (to prevent {"tool leaks)
  */
 export function toolPayloadStartIndex(text) {
   if (!text) return -1;
-  return text.search(/```(?:json)?\s*\{\s*"(?:tool_calls|name|tool|function)"|<tool_call>|<tool_call_name>|<tool_code>|"function_call"\s*:/i);
+
+  // 1. Definitive fenced JSON tool payload (starts at ```)
+  const fencedMatch = text.match(/```(?:json)?\s*(?:\{\s*"(?:tool_calls|name|tool|function)"|\[\s*\{\s*"(?:name|tool|function)")/i);
+  if (fencedMatch && fencedMatch.index !== undefined) {
+    return fencedMatch.index;
+  }
+
+  // 2. Definitive raw JSON tool payload (starts at { or [)
+  const rawMatch = text.match(/(?:\{\s*"(?:tool_calls|function_call)"|\{\s*"(?:name|tool|function)"\s*:\s*"|\[\s*\{\s*"(?:name|tool|function)")/i);
+  if (rawMatch && rawMatch.index !== undefined) {
+    return rawMatch.index;
+  }
+
+  // 3. Definitive XML tool tags (starts at <)
+  const xmlMatch = text.match(/<(?:tool_call|tool_call_name|tool_code)>/i);
+  if (xmlMatch && xmlMatch.index !== undefined) {
+    return xmlMatch.index;
+  }
+
+  // 4. Candidate streaming prefixes at the tail of text:
+  // 4a. Pending fenced block: text ends with ``` or ```json or ```json\n{...
+  const tailFence = text.match(/```(?:json)?\s*(?:\{[a-z0-9_" \t\r\n]*)?$/i);
+  if (tailFence && tailFence.index !== undefined) {
+    return tailFence.index;
+  }
+
+  // 4b. Pending raw JSON: text ends with { followed by optional spaces and partial tool key
+  const tailJson = text.match(/\{[ \t\r\n]*(?:"(?:t(?:o(?:o(?:l(?:_(?:c(?:a(?:l(?:l(?:s)?)?)?)?)?)?)?)?)?|n(?:a(?:m(?:e)?)?)?|f(?:u(?:n(?:c(?:t(?:i(?:o(?:n(?:_(?:c(?:a(?:l(?:l)?)?)?)?)?)?)?)?)?)?)?)?)?)?$/i);
+  if (tailJson && tailJson.index !== undefined) {
+    return tailJson.index;
+  }
+
+  // 4c. Pending XML tag: text ends with < or <t...
+  const tailXml = text.match(/<(?:t(?:o(?:o(?:l(?:_(?:c(?:a(?:l(?:l(?:_(?:n(?:a(?:m(?:e)?)?)?)?)?)?|o(?:d(?:e)?)?)?)?)?)?)?)?)?)?$/i);
+  if (tailXml && tailXml.index !== undefined) {
+    return tailXml.index;
+  }
+
+  return -1;
 }
 
 /**
