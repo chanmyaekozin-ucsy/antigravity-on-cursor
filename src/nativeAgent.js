@@ -133,12 +133,28 @@ export function extractImages(messages = []) {
 
   const pushHttpUrl = (url, caption = '') => {
     if (!url || images.length >= MAX_IMAGES) return;
+    // Only pass real http(s) URLs — local file:// paths are Mac-side assets
+    // the VPS can never read. Cascade would try to natively open them and fail.
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
     // Cascade ImageData supports uri as well as base64
     images.push({
       uri: url,
       mimeType: guessMimeFromUrl(url),
       ...(caption ? { caption } : {})
     });
+  };
+
+  // Returns true for URLs that are local Mac filesystem paths the VPS bridge
+  // cannot access (file://, .cursor internal assets, absolute Mac paths, etc.)
+  const isLocalPath = (url) => {
+    if (!url) return true;
+    const s = String(url);
+    return s.startsWith('file://') ||
+           s.startsWith('/Users/') ||
+           s.startsWith('/home/') ||
+           s.includes('/.cursor/') ||
+           s.includes('/.cursor\\') ||
+           (!s.startsWith('http') && !s.startsWith('data:'));
   };
 
   for (const msg of messages) {
@@ -153,14 +169,17 @@ export function extractImages(messages = []) {
         const url = typeof part.image_url === 'string'
           ? part.image_url
           : part.image_url?.url;
-        if (!url) continue;
+        if (!url || isLocalPath(url)) continue; // skip local Mac paths
         if (url.startsWith('data:')) pushDataUrl(url, part.image_url?.detail || '');
         else pushHttpUrl(url);
       } else if (part.type === 'input_image') {
         if (part.image_url) {
-          if (String(part.image_url).startsWith('data:')) pushDataUrl(part.image_url);
-          else pushHttpUrl(part.image_url);
+          const iurl = String(part.image_url);
+          if (isLocalPath(iurl)) { /* skip local Mac path */ }
+          else if (iurl.startsWith('data:')) pushDataUrl(iurl);
+          else pushHttpUrl(iurl);
         } else if (part.data) {
+          // Inline base64 — always safe to pass to Cascade
           images.push({
             base64Data: part.data,
             mimeType: part.mime_type || part.mimeType || 'image/png'

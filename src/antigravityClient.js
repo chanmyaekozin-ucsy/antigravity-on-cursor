@@ -855,6 +855,19 @@ class AntigravityClient {
             return;
           }
 
+          // Recoverable tool-execution error (e.g. Cascade tried to read a local Mac image
+          // that doesn't exist on the VPS). Retry once with a fresh session and no images
+          // so the model can still respond to the user's actual text request.
+          if (err.isRecoverableToolError && !turn._retriedWithoutImages) {
+            console.warn(`[Antigravity] Recoverable tool error (image/file path): retrying without images...`);
+            turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false });
+            turn.images = [];
+            turn._retriedWithoutImages = true;
+            isReused = false;
+            cascadeId = null;
+            continue;
+          }
+
           // If tokens were already streamed to client, we cannot switch accounts or models
           if (anyDeltaSent) {
             this.cascadeSessions.drop(fingerprint);
@@ -1181,10 +1194,21 @@ class AntigravityClient {
         const isRecoverableToolError = /invalid tool call|failed to read file|no such file|permission denied|invalid_args|not found|enoent/i.test(errDetails);
 
         if (isRecoverableToolError) {
-          // Emit the error as visible text — Cursor's agent loop will handle it
-          onDelta(`\n\n> ⚠️ Tool execution error: ${errDetails}\n`);
-          isFinished = true;
-          break;
+          if (streamedCharCount > 0) {
+            // Model had already produced text — just append the error note so
+            // Cursor's agent can read it and self-correct on the next turn.
+            onDelta(`\n\n> ⚠️ Tool execution error: ${errDetails}\n`);
+            isFinished = true;
+            break;
+          } else {
+            // Model produced 0 chars — the error fired before any response.
+            // Throw a tagged error so the outer retry loop can restart with
+            // a fresh Cascade session (and without local-path images).
+            this.cascadeSessions.drop(fingerprint);
+            const retryErr = new Error(`retry_no_images: ${errDetails}`);
+            retryErr.isRecoverableToolError = true;
+            throw retryErr;
+          }
         }
 
         // Truly fatal (auth, unsupported model, server crash) — drop session and throw
