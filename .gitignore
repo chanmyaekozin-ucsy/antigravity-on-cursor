@@ -5,3 +5,4 @@ scratch/
 log
 .env
 .env.*
+!.env.example

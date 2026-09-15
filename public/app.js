@@ -183,6 +183,19 @@ async function fetchStatus() {
       label.textContent = 'Waiting for Antigravity...';
     }
 
+    // Update Auth guard indicator
+    const authPill = document.getElementById('auth-status-pill');
+    const authLabel = document.getElementById('auth-status-label');
+    if (authPill && authLabel) {
+      if (data.auth && data.auth.enabled) {
+        authPill.style.display = 'inline-flex';
+        authLabel.textContent = `Guarded (${data.auth.username})`;
+        authPill.title = `Dashboard protected with HTTP Basic Auth. Logged in as ${data.auth.username}.`;
+      } else {
+        authPill.style.display = 'none';
+      }
+    }
+
     // Update base url code box
     const codeBaseUrl = document.getElementById('code-base-url');
     if (codeBaseUrl && data.baseUrl) {

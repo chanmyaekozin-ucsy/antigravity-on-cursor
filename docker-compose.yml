@@ -15,8 +15,10 @@ services:
       - PORT=8045
       - NODE_ENV=production
       - DISABLE_TUNNEL=true
+      - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8045/api/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:8045/health"]
       interval: 30s
       timeout: 10s
       retries: 3

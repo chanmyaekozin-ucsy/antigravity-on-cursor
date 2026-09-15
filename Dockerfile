@@ -55,6 +55,6 @@ VOLUME ["/root/.gemini"]
 EXPOSE 8045
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:8045/api/status || exit 1
+  CMD curl -f http://localhost:8045/health || exit 1
 
 CMD ["node", "src/server.js"]

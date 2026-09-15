@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { handleModels, handleChatCompletions } from './openaiAdapter.js';
 import { antigravity } from './antigravityClient.js';
@@ -12,12 +14,119 @@ import { tunnelManager } from './tunnelManager.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ==========================================
+// Environment Configuration Loader
+// ==========================================
+// Priority: Existing system/CLI env > .env.local > .env
+function loadEnv() {
+  const rootDir = path.join(__dirname, '..');
+  const envFiles = ['.env.local', '.env'];
+  for (const file of envFiles) {
+    const fullPath = path.join(rootDir, file);
+    if (!fs.existsSync(fullPath)) continue;
+    try {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        const eqIdx = line.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = line.slice(0, eqIdx).trim();
+        let val = line.slice(eqIdx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (process.env[key] === undefined) {
+          process.env[key] = val;
+        }
+      }
+      console.log(`[Env] Loaded configuration from ${file}`);
+    } catch (err) {
+      console.warn(`[Env] Failed to read ${file}:`, err.message);
+    }
+  }
+}
+loadEnv();
+
+// Constant-time string comparison to prevent timing attacks
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'utf-8');
+  const bufB = Buffer.from(b, 'utf-8');
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 const app = express();
 const PORT = process.env.PORT || 8045;
 
 app.use(cors());
 app.use(express.json({ limit: '40mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// ==========================================
+// Public Health Check (For Docker / Coolify)
+// ==========================================
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ==========================================
+// Dashboard Authentication Guard (HTTP Basic)
+// ==========================================
+app.use((req, res, next) => {
+  // Routes completely exempt from dashboard basic auth:
+  // - /v1/* : OpenAI-compatible endpoints used by Cursor IDE (secured by Bearer API keys)
+  // - /health : Docker/Coolify health monitoring
+  // - /oauth-callback : Google OAuth browser redirect handler
+  // - /proxy.pac : System Proxy Auto-Config
+  if (
+    req.path.startsWith('/v1') ||
+    req.path === '/health' ||
+    req.path === '/oauth-callback' ||
+    req.path === '/proxy.pac'
+  ) {
+    return next();
+  }
+
+  const expectedUser = process.env.DASHBOARD_USERNAME;
+  const expectedPass = process.env.DASHBOARD_PASSWORD;
+
+  // If credentials are not configured, allow public dashboard access
+  if (!expectedUser || !expectedPass) {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization || '';
+  if (authHeader.startsWith('Basic ')) {
+    try {
+      const credentials = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
+      const colonIdx = credentials.indexOf(':');
+      if (colonIdx !== -1) {
+        const user = credentials.slice(0, colonIdx);
+        const pass = credentials.slice(colonIdx + 1);
+        if (safeCompare(user, expectedUser) && safeCompare(pass, expectedPass)) {
+          return next();
+        }
+      }
+    } catch {
+      // Malformed header, fall through to 401
+    }
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="Antigravity Dashboard", charset="UTF-8"');
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Unauthorized. Dashboard credentials required.' });
+  }
+  return res.status(401).send('401 Unauthorized - Access to Antigravity Dashboard requires valid credentials.');
+});
 
 // Serve static files for Dashboard
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -60,7 +169,11 @@ app.get('/api/status', async (req, res) => {
     activeAccount: accountManager.config.activeAccountId,
     port: PORT,
     baseUrl: `http://localhost:${PORT}/v1`,
-    tunnel
+    tunnel,
+    auth: {
+      enabled: Boolean(process.env.DASHBOARD_USERNAME && process.env.DASHBOARD_PASSWORD),
+      username: (process.env.DASHBOARD_USERNAME && process.env.DASHBOARD_PASSWORD) ? process.env.DASHBOARD_USERNAME : null
+    }
   });
 });
 
@@ -333,7 +446,7 @@ const server = app.listen(PORT, async () => {
 ==========================================================
    🚀 Antigravity Cursor Bridge & Dashboard Running!
 ==========================================================
-  • Web Dashboard:    http://localhost:${PORT}
+  • Web Dashboard:    http://localhost:${PORT}${process.env.DASHBOARD_USERNAME && process.env.DASHBOARD_PASSWORD ? ' (🔒 Protected: ' + process.env.DASHBOARD_USERNAME + ')' : ' (🔓 Public)'}
   • Cursor Base URL:  http://localhost:${PORT}/v1
   • Default API Key:  sk-antigravity-default
 
