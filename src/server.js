@@ -226,7 +226,9 @@ app.post('/api/accounts', (req, res) => {
 
 app.delete('/api/accounts/:id', (req, res) => {
   try {
-    const deleted = accountManager.deleteAccount(req.params.id);
+    const accountId = req.params.id;
+    try { antigravity.cleanupAccount(accountId); } catch {}
+    const deleted = accountManager.deleteAccount(accountId);
     if (!deleted) return res.status(404).json({ error: 'Account not found' });
     res.json({ success: true });
   } catch (err) {
@@ -457,13 +459,17 @@ ${isTunnelDisabled ? `  • Public Domain:    ${publicUrl ? publicUrl : 'Managed
      Your public Cursor Base URL will appear below shortly.`}
 
   Models Available in Cursor:
-    - dominate-gemini-3.8-flash-high  (Gemini 3.8 Flash High)
-    - dominate-gemini-3.8-flash-medium(Gemini 3.8 Flash Medium)
-    - dominate-gemini-3.7-flash-high  (Gemini 3.7 Flash High)
-    - gemini-pro-agent                (Gemini 3.1 Pro High)
-    - dominate-kladue-sonnet-4-6      (Kladue Sonnet 4.6 Thinking)
-    - dominate-kladue-opus-4-6        (Kladue Opus 4.6 Thinking)
-    - dominate-gpt-oss-120b           (GPT-OSS 120B)
+    - dominate-gemini-3.8-flash-high   (Gemini 3.8 Flash High)
+    - dominate-gemini-3.8-flash-medium (Gemini 3.8 Flash Medium)
+    - dominate-gemini-3.8-flash-low    (Gemini 3.8 Flash Low)
+    - dominate-gemini-3.7-flash-high   (Gemini 3.7 Flash High)
+    - dominate-gemini-3.7-flash-medium (Gemini 3.7 Flash Medium)
+    - dominate-gemini-pro-agent        (Gemini 3.1 Pro High)
+    - dominate-gemini-3.6-flash-high   (Gemini 3.6 Flash High)
+    - dominate-klaude-sonnet-4-6       (Claude Sonnet 4.6 Thinking)
+    - dominate-klaude-opus-4-6         (Claude Opus 4.6 Thinking)
+    - dominate-klaude-3-7-sonnet       (Claude Sonnet 4.6 Alias)
+    - dominate-gpt-oss-120b-medium     (GPT-OSS 120B)
 ==========================================================
 `);
 

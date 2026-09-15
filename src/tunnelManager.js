@@ -98,10 +98,12 @@ class TunnelManager extends EventEmitter {
 
   /** Returns the current tunnel status object for the API. */
   getStatus() {
+    const disabled = process.env.DISABLE_TUNNEL === 'true' || process.env.ENABLE_TUNNEL === 'false';
     return {
-      active: !!this.url,
-      url: this.url,
-      cursorBaseUrl: this.url ? `${this.url}/v1` : null,
+      disabled,
+      active: !disabled && !!this.url,
+      url: disabled ? null : this.url,
+      cursorBaseUrl: (!disabled && this.url) ? `${this.url}/v1` : null,
       retries: this.retries,
       provider: 'serveo'
     };

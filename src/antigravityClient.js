@@ -22,103 +22,89 @@ import {
 // Model dictionary mapping friendly IDs and labels to internal Antigravity model identifiers
 export const MODEL_MAP = {
   // Gemini Models
-  'gemini-3.8-flash-high': {
-    id: 'gemini-3.8-flash-high',
-    name: 'Gemini 3.8 Flash (High)',
-    model: 'MODEL_PLACEHOLDER_M318',
-    category: 'gemini',
-    description: 'Ultra-fast flagship with high reasoning effort'
-  },
-  'claude-sonnet-4-6': {
-    id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6 (Thinking)',
-    model: 'MODEL_PLACEHOLDER_M35',
-    category: 'claude',
-    description: 'Anthropic Claude Sonnet 4.6 with native extended thinking'
-  },
   'dominate-gemini-3.8-flash-high': {
-    id: 'gemini-3.8-flash-high',
+    id: 'dominate-gemini-3.8-flash-high',
     name: 'Gemini 3.8 Flash (High)',
     model: 'MODEL_PLACEHOLDER_M318',
     category: 'gemini',
     description: 'Ultra-fast flagship with high reasoning effort'
   },
-  'gemini-3.8-flash-medium': {
-    id: 'gemini-3.8-flash-medium',
+  'dominate-gemini-3.8-flash-medium': {
+    id: 'dominate-gemini-3.8-flash-medium',
     name: 'Gemini 3.8 Flash (Medium)',
     model: 'MODEL_PLACEHOLDER_M319',
     category: 'gemini',
     description: 'Fast flagship with medium reasoning effort'
   },
-  'gemini-3.8-flash-low': {
-    id: 'gemini-3.8-flash-low',
+  'dominate-gemini-3.8-flash-low': {
+    id: 'dominate-gemini-3.8-flash-low',
     name: 'Gemini 3.8 Flash (Low)',
     model: 'MODEL_PLACEHOLDER_M320',
     category: 'gemini',
     description: 'Fast flagship with low reasoning effort'
   },
-  'gemini-3.7-flash-high': {
-    id: 'gemini-3.7-flash-high',
+  'dominate-gemini-3.7-flash-high': {
+    id: 'dominate-gemini-3.7-flash-high',
     name: 'Gemini 3.7 Flash (High)',
-    model: 'MODEL_PLACEHOLDER_M318', // Routed to high-capacity Gemini 3.8 engine to resolve 503/EOF drops
+    model: 'MODEL_PLACEHOLDER_M318',
     category: 'gemini',
     description: 'Fast and versatile with high reasoning'
   },
-  'gemini-3.7-flash-medium': {
-    id: 'gemini-3.7-flash-medium',
+  'dominate-gemini-3.7-flash-medium': {
+    id: 'dominate-gemini-3.7-flash-medium',
     name: 'Gemini 3.7 Flash (Medium)',
     model: 'MODEL_PLACEHOLDER_M319',
     category: 'gemini',
     description: 'Balanced speed and intelligence'
   },
-  'gemini-pro-agent': {
-    id: 'gemini-pro-agent',
+  'dominate-gemini-pro-agent': {
+    id: 'dominate-gemini-pro-agent',
     name: 'Gemini 3.1 Pro (High)',
     model: 'MODEL_PLACEHOLDER_M16',
     category: 'gemini',
     description: 'Deep reasoning, complex coding, high capacity'
   },
-  'gemini-3.1-pro-low': {
-    id: 'gemini-3.1-pro-low',
+  'dominate-gemini-3.1-pro-low': {
+    id: 'dominate-gemini-3.1-pro-low',
     name: 'Gemini 3.1 Pro (Low)',
     model: 'MODEL_PLACEHOLDER_M36',
     category: 'gemini',
     description: 'Pro model with low latency'
   },
-  'gemini-3.6-flash-high': {
-    id: 'gemini-3.6-flash-high',
+  'dominate-gemini-3.6-flash-high': {
+    id: 'dominate-gemini-3.6-flash-high',
     name: 'Gemini 3.6 Flash (High)',
     model: 'MODEL_PLACEHOLDER_M71',
     category: 'gemini',
     description: 'Fast flash model with high reasoning'
   },
 
-  // Claude Models
+  // Claude Models (Klaude model code used to bypass Cursor client restrictions)
   'dominate-klaude-sonnet-4-6': {
-    id: 'claude-sonnet-4-6',
+    id: 'dominate-klaude-sonnet-4-6',
     name: 'Claude Sonnet 4.6 (Thinking)',
     model: 'MODEL_PLACEHOLDER_M35',
     category: 'claude',
     description: 'Anthropic Claude Sonnet 4.6 with native extended thinking'
   },
-  'claude-3-7-sonnet': {
-    id: 'claude-3-7-sonnet',
-    name: 'Claude Sonnet 4.6 (Thinking) [Alias]',
-    model: 'MODEL_PLACEHOLDER_M35',
-    category: 'claude',
-    description: 'Alias for Claude Sonnet 4.6'
-  },
-  'claude-opus-4-6-thinking': {
-    id: 'claude-opus-4-6-thinking',
+  'dominate-klaude-opus-4-6': {
+    id: 'dominate-klaude-opus-4-6',
     name: 'Claude Opus 4.6 (Thinking)',
     model: 'MODEL_PLACEHOLDER_M26',
     category: 'claude',
     description: 'Anthropic Claude Opus 4.6 with maximum reasoning depth'
   },
+  'dominate-klaude-3-7-sonnet': {
+    id: 'dominate-klaude-3-7-sonnet',
+    name: 'Claude Sonnet 4.6 (Thinking) [Alias]',
+    model: 'MODEL_PLACEHOLDER_M35',
+    category: 'claude',
+    description: 'Anthropic Claude Sonnet 4.6'
+  },
 
   // GPT Models
-  'gpt-oss-120b-medium': {
-    id: 'gpt-oss-120b-medium',
+  'dominate-gpt-oss-120b-medium': {
+    id: 'dominate-gpt-oss-120b-medium',
     name: 'GPT-OSS 120B (Medium)',
     model: 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM',
     category: 'gpt',
@@ -127,15 +113,38 @@ export const MODEL_MAP = {
 };
 
 export function resolveModelConfig(modelId) {
-  if (!modelId) return MODEL_MAP['gemini-3.8-flash-high'] || MODEL_MAP['dominate-gemini-3.8-flash-high'];
+  if (!modelId) return MODEL_MAP['dominate-gemini-3.8-flash-high'] || Object.values(MODEL_MAP)[0];
   if (MODEL_MAP[modelId]) return MODEL_MAP[modelId];
-  const lower = String(modelId).toLowerCase();
+
+  // Normalize claude -> kladue
+  const asKladue = String(modelId).replace(/claude/gi, 'kladue');
+  if (MODEL_MAP[asKladue]) return MODEL_MAP[asKladue];
+
+  // Try matching with dominate- prefix added
+  const withPrefix = asKladue.startsWith('dominate-') ? asKladue : `dominate-${asKladue}`;
+  if (MODEL_MAP[withPrefix]) return MODEL_MAP[withPrefix];
+
+  // Try matching without dominate- prefix
+  const withoutPrefix = asKladue.replace(/^dominate-/, '');
+  if (MODEL_MAP[withoutPrefix]) return MODEL_MAP[withoutPrefix];
+
+  const lower = String(asKladue).toLowerCase();
   for (const [key, cfg] of Object.entries(MODEL_MAP)) {
     if (key.toLowerCase() === lower || cfg.id?.toLowerCase() === lower || cfg.name?.toLowerCase() === lower) {
       return cfg;
     }
   }
-  return MODEL_MAP['gemini-3.8-flash-high'] || MODEL_MAP['dominate-gemini-3.8-flash-high'] || Object.values(MODEL_MAP)[0];
+
+  // Also check without prefix case-insensitively
+  const lowerWithout = lower.replace(/^dominate-/, '');
+  for (const [key, cfg] of Object.entries(MODEL_MAP)) {
+    const keyWithout = key.replace(/^dominate-/, '').toLowerCase();
+    if (keyWithout === lowerWithout) {
+      return cfg;
+    }
+  }
+
+  return MODEL_MAP['dominate-gemini-3.8-flash-high'] || Object.values(MODEL_MAP)[0];
 }
 
 class AntigravityClient {
@@ -444,12 +453,30 @@ class AntigravityClient {
     }
   }
 
+  /**
+   * Terminate and remove secondary language server connection for an account
+   */
+  cleanupAccount(accountId) {
+    const conn = this.accountConnections.get(accountId);
+    if (conn) {
+      if (conn.proc) {
+        try { conn.proc.kill('SIGTERM'); } catch {}
+      } else if (conn.pid) {
+        try { process.kill(conn.pid, 'SIGTERM'); } catch {}
+      }
+      this.accountConnections.delete(accountId);
+    }
+    try {
+      execSync(`pkill -f "gemini_dir=.*accounts/${accountId}"`, { stdio: 'ignore' });
+    } catch {}
+  }
+
 
   /**
    * Get active connection (URL + CSRF token) for given accountId or active account
    */
   async getConnection(accountId = null) {
-    const targetId = accountId || accountManager.config.activeAccountId || 'default';
+    const targetId = accountId || accountManager.getInitialAccount();
 
     if (targetId === 'default') {
       const isConnected = await this.ensureConnected();
@@ -680,50 +707,62 @@ class AntigravityClient {
 
     // Define fallback chain for models experiencing transient capacity limits
     const FALLBACK_CHAINS = {
-      'dominate-gemini-3.8-flash-high': ['gemini-3.8-flash-medium', 'gemini-pro-agent'],
-      'gemini-3.8-flash-high': ['gemini-3.8-flash-medium', 'gemini-pro-agent'],
-      'gemini-3.7-flash-high': ['gemini-3.8-flash-high', 'gemini-pro-agent'],
-      'gemini-3.7-flash-medium': ['gemini-3.8-flash-medium', 'gemini-pro-agent'],
-      'claude-opus-4-6-thinking': ['claude-sonnet-4-6', 'gemini-3.8-flash-high'],
-      'dominate-klaude-sonnet-4-6': ['claude-sonnet-4-6', 'gemini-3.8-flash-high'],
-      'claude-sonnet-4-6': ['gemini-3.8-flash-high', 'gemini-pro-agent'],
-      'claude-3-7-sonnet': ['claude-sonnet-4-6', 'gemini-3.8-flash-high']
+      'dominate-gemini-3.8-flash-high': ['dominate-gemini-3.8-flash-medium', 'dominate-gemini-pro-agent'],
+      'dominate-gemini-3.8-flash-medium': ['dominate-gemini-3.8-flash-low', 'dominate-gemini-pro-agent'],
+      'dominate-gemini-3.7-flash-high': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent'],
+      'dominate-gemini-3.7-flash-medium': ['dominate-gemini-3.8-flash-medium', 'dominate-gemini-pro-agent'],
+      'dominate-kladue-opus-4-6': ['dominate-kladue-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
+      'dominate-kladue-opus-4-6-thinking': ['dominate-kladue-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
+      'dominate-kladue-sonnet-4-6': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent'],
+      'dominate-kladue-3-7-sonnet': ['dominate-kladue-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
+      // Compatibility with claude spelling
+      'dominate-claude-sonnet-4-6': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent'],
+      'claude-sonnet-4-6': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent']
     };
 
-    const modelsToTry = [modelId, ...(FALLBACK_CHAINS[modelId] || ['gemini-3.8-flash-medium', 'gemini-pro-agent'])];
+    const modelsToTry = [modelId, ...(FALLBACK_CHAINS[modelId] || ['dominate-gemini-3.8-flash-medium', 'dominate-gemini-pro-agent'])];
 
-    let currentAccountId = accountId || accountManager.config.activeAccountId || 'default';
-    const accountsTried = new Set();
+    let currentAccountId = accountManager.getInitialAccount(accountId);
     let lastError = null;
     let anyDeltaSent = false;
+    let turn = buildNativeTurn({
+      messages,
+      tools,
+      tool_choice,
+      mode: resolvedMode,
+      reuseSession: isReused
+    });
 
-    while (currentAccountId && !accountsTried.has(currentAccountId)) {
-      accountsTried.add(currentAccountId);
+    for (let m = 0; m < modelsToTry.length; m++) {
+      const currentModelId = modelsToTry[m];
+      const modelConfig = resolveModelConfig(currentModelId);
+      const internalModel = modelConfig.model;
+      const accountsTriedForModel = new Set();
 
-      let conn = null;
-      try {
-        conn = await this.getConnection(currentAccountId);
-      } catch (connErr) {
-        console.warn(`[Antigravity] Could not connect account '${currentAccountId}':`, connErr.message);
-        if (accountManager.config.autoSwitchOnLimit) {
-          accountManager.markRateLimited(currentAccountId, 120);
-          const nextAcc = accountManager.getNextAvailableAccount(currentAccountId);
-          if (nextAcc && !accountsTried.has(nextAcc.id)) {
-            console.log(`[Antigravity] Failover: switching from ${currentAccountId} to ${nextAcc.id}...`);
-            currentAccountId = nextAcc.id;
-            continue;
+      while (currentAccountId && !accountsTriedForModel.has(currentAccountId)) {
+        accountsTriedForModel.add(currentAccountId);
+
+        let conn = null;
+        try {
+          conn = await this.getConnection(currentAccountId);
+        } catch (connErr) {
+          console.warn(`[Antigravity] Could not connect account '${currentAccountId}':`, connErr.message);
+          lastError = connErr;
+          if (accountManager.config.autoSwitchOnLimit) {
+            accountManager.markRateLimited(currentAccountId, 120);
+            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel);
+            if (nextAcc) {
+              console.log(`[Antigravity] Connection failover: switching from ${currentAccountId} to ${nextAcc.id}...`);
+              currentAccountId = nextAcc.id;
+              isReused = false;
+              cascadeId = null;
+              this.cascadeSessions.drop(fingerprint);
+              turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false });
+              continue;
+            }
           }
+          break; // move to next model if no accounts available
         }
-        onError(connErr);
-        return;
-      }
-
-      let accountHitLimit = false;
-
-      for (let i = 0; i < modelsToTry.length; i++) {
-        const currentModelId = modelsToTry[i];
-        const modelConfig = resolveModelConfig(currentModelId);
-        const internalModel = modelConfig.model;
 
         try {
           await this._runCascadeAttempt({
@@ -733,12 +772,12 @@ class AntigravityClient {
             cascadeId: isReused ? cascadeId : null,
             fingerprint,
             isReused,
-            initialStepOffset,
-            messageToSend,
-            images,
+            initialStepOffset: isReused ? initialStepOffset : 0,
+            messageToSend: turn.messageToSend,
+            images: turn.images,
             tools,
             tool_choice,
-            hasTools,
+            hasTools: turn.hasTools,
             messages,
             signal,
             onDelta: (delta) => {
@@ -766,13 +805,30 @@ class AntigravityClient {
             return;
           }
 
-          // Check if error is a rate limit or quota exhaustion
-          const isRateLimit = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted/i.test(err.message);
-          if (isRateLimit && accountManager.config.autoSwitchOnLimit) {
-            accountHitLimit = true;
-            accountManager.markRateLimited(currentAccountId, 600);
-            console.warn(`[Antigravity] Account '${currentAccountId}' hit rate/quota limit on model '${currentModelId}'.`);
-            break; // Break model loop to auto-switch account!
+          // Check if error is a rate limit, quota exhaustion, model overload, or unauthenticated token
+          const isRateLimit = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded|Agent execution terminated due to error/i.test(err.message);
+          const isAuthError = /UNAUTHENTICATED|CREDENTIALS_MISSING|invalid_grant|401/i.test(err.message);
+
+          if ((isRateLimit || isAuthError) && accountManager.config.autoSwitchOnLimit) {
+            const cooldown = isAuthError ? 900 : 600;
+            accountManager.markRateLimited(currentAccountId, cooldown);
+            const reason = isAuthError ? 'authentication failure' : 'rate/quota/overload limit';
+            console.warn(`[Antigravity] Account '${currentAccountId}' hit ${reason} on model '${currentModelId}'.`);
+
+            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel);
+            if (nextAcc) {
+              console.log(`[Antigravity] Auto-switching from ${currentAccountId} to ${nextAcc.id} (${nextAcc.email || nextAcc.name})...`);
+              currentAccountId = nextAcc.id;
+              // Cleanly reset cascade session reuse for the new account and provide full history
+              isReused = false;
+              cascadeId = null;
+              this.cascadeSessions.drop(fingerprint);
+              turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false });
+              continue; // retry current model on the next account!
+            } else {
+              console.warn(`[Antigravity] All available accounts exhausted for '${currentModelId}'. Falling back in model chain...`);
+              break; // break account loop for this model; next iteration in modelsToTry will run!
+            }
           }
 
           // On network drops, force-reconnect
@@ -790,17 +846,6 @@ class AntigravityClient {
           }
         }
       }
-
-      if (accountHitLimit && accountManager.config.autoSwitchOnLimit) {
-        const nextAcc = accountManager.getNextAvailableAccount(currentAccountId);
-        if (nextAcc && !accountsTried.has(nextAcc.id)) {
-          console.log(`[Antigravity] Auto-switching from ${currentAccountId} to ${nextAcc.id} (${nextAcc.email || nextAcc.name})...`);
-          currentAccountId = nextAcc.id;
-          continue;
-        }
-      }
-
-      break;
     }
 
     if (lastError) {

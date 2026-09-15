@@ -403,7 +403,8 @@ body {
   border: 1px solid #bfdbfe;
 }
 
-.model-tag.claude {
+.model-tag.claude,
+.model-tag.kladue {
   background: var(--warning-subtle);
   color: var(--warning);
   border: 1px solid #fde68a;
@@ -665,6 +666,14 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+}
+
+.account-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* Buttons */
@@ -674,18 +683,25 @@ body {
   font-weight: 500;
   padding: 7px 14px;
   border-radius: var(--radius-sm);
+  border: 1px solid transparent;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  transition: all 0.15s ease;
-  border: none;
+  text-decoration: none;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-primary {
   background: var(--accent-primary);
   color: #ffffff;
-  box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
@@ -694,9 +710,8 @@ body {
 
 .btn-outline {
   background: #ffffff;
-  border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  box-shadow: var(--shadow-sm);
+  border-color: var(--border-color);
 }
 
 .btn-outline:hover {
@@ -709,12 +724,19 @@ body {
   background: #ffffff;
   border: 1px solid #fca5a5;
   color: var(--danger);
-  padding: 3px 8px;
-  font-size: 0.74rem;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .btn-danger-outline:hover {
   background: var(--danger-subtle);
+  border-color: var(--danger);
 }
 
 /* Modal */

@@ -339,7 +339,25 @@ class AccountManager {
    */
   deleteAccount(accountId) {
     if (accountId === 'default') {
-      throw new Error('Cannot delete the primary Antigravity IDE account');
+      let changed = false;
+      if (fs.existsSync(DEFAULT_TOKEN_PATH)) {
+        try {
+          fs.unlinkSync(DEFAULT_TOKEN_PATH);
+          changed = true;
+        } catch {}
+      }
+      if (this.config.primaryEmail || this.config.primaryName) {
+        this.config.primaryEmail = null;
+        this.config.primaryName = null;
+        this.config.primaryPicture = null;
+        changed = true;
+      }
+      if (changed) {
+        this._saveConfig();
+        console.log('[AccountManager] Cleared primary account credentials');
+        return true;
+      }
+      return false;
     }
 
     const initialLen = this.config.accounts.length;
@@ -363,6 +381,11 @@ class AccountManager {
     } catch (err) {
       console.warn(`[AccountManager] Error removing directory for ${accountId}:`, err.message);
     }
+
+    // Terminate any stale process for this specific account
+    try {
+      execSync(`pkill -f "gemini_dir=.*accounts/${accountId}"`, { stdio: 'ignore' });
+    } catch {}
 
     this._saveConfig();
     console.log(`[AccountManager] Deleted account ${accountId}`);
@@ -551,22 +574,84 @@ class AccountManager {
   }
 
   /**
-   * Find next available non-rate-limited account for auto-failover
+   * Check if account has valid credentials present on disk
    */
-  getNextAvailableAccount(currentAccountId) {
-    const allAccountIds = ['default', ...(this.config.accounts || []).map(a => a.id)];
+  hasValidCredentials(accountId) {
+    if (accountId === 'default') {
+      if (this._getIdeActiveToken()) return true;
+      if (fs.existsSync(DEFAULT_TOKEN_PATH)) {
+        try {
+          const raw = JSON.parse(fs.readFileSync(DEFAULT_TOKEN_PATH, 'utf-8'));
+          return Boolean(raw && (raw.access_token || raw.token?.access_token || raw.token));
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
+    const acc = (this.config.accounts || []).find(a => a.id === accountId);
+    if (!acc || !acc.token) return false;
+    const t = acc.token?.token || acc.token;
+    return Boolean(t && (t.access_token || t.refresh_token));
+  }
+
+  /**
+   * Resolve an initial healthy account, gracefully falling back if preferred is missing credentials or rate-limited
+   */
+  getInitialAccount(preferredId = null) {
+    const targetId = preferredId || this.config.activeAccountId || 'default';
+    if (this.hasValidCredentials(targetId)) {
+      const rlimit = this.getRateLimitInfo(targetId);
+      if (!rlimit.isLimited) {
+        return targetId;
+      }
+    }
+    const next = this.getNextAvailableAccount(targetId);
+    if (next) return next.id;
+    return targetId;
+  }
+
+  /**
+   * Find next available non-rate-limited account with valid credentials for auto-failover
+   */
+  getNextAvailableAccount(currentAccountId, excludedIds = null) {
+    const excluded = excludedIds instanceof Set ? excludedIds : new Set(excludedIds || []);
+    const accounts = this.config.accounts || [];
+    const allAccountIds = [];
+
+    // Only include default if it actually has valid credentials
+    if (this.hasValidCredentials('default')) {
+      allAccountIds.push('default');
+    }
+    for (const a of accounts) {
+      if (this.hasValidCredentials(a.id)) {
+        allAccountIds.push(a.id);
+      }
+    }
+
     const available = allAccountIds.filter(id => {
       if (id === currentAccountId) return false;
+      if (excluded.has(id)) return false;
       const rlimit = this.getRateLimitInfo(id);
       return !rlimit.isLimited;
     });
 
     if (available.length === 0) {
-      return null; // All accounts are rate-limited
+      return null; // All accounts are rate-limited or exhausted
     }
 
-    const nextId = available[0];
-    return this.getAccount(nextId);
+    // Round-robin selection starting immediately after currentAccountId
+    const currIdx = allAccountIds.indexOf(currentAccountId);
+    if (currIdx !== -1) {
+      for (let i = 1; i <= allAccountIds.length; i++) {
+        const candidate = allAccountIds[(currIdx + i) % allAccountIds.length];
+        if (available.includes(candidate)) {
+          return this.getAccount(candidate);
+        }
+      }
+    }
+
+    return this.getAccount(available[0]);
   }
 
   // API Key Management

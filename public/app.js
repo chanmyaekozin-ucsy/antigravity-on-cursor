@@ -24,6 +24,12 @@ document.addEventListener('DOMContentLoaded', () => {
    Cloudflare Tunnel Panel
 ========================================== */
 function initTunnelPanel() {
+  // Proactively initialize step 1 code box with origin URL in case tunnel is disabled
+  const step1 = document.getElementById('code-base-url');
+  if (step1 && step1.textContent.includes('Waiting for tunnel')) {
+    step1.textContent = `${window.location.origin}/v1`;
+  }
+
   // Wire up tunnel copy button
   document.getElementById('btn-copy-tunnel-url')?.addEventListener('click', () => {
     const url = document.getElementById('tunnel-public-url')?.textContent;
@@ -43,6 +49,12 @@ async function pollTunnel() {
     const res = await fetch('/api/tunnel');
     const data = await res.json();
     updateTunnelUI(data);
+
+    if (data.disabled) {
+      // Tunnel explicitly disabled (Coolify / reverse proxy). Stop polling.
+      return;
+    }
+
     if (!data.active) {
       // Keep polling until ready
       setTimeout(pollTunnel, 3000);
@@ -63,6 +75,26 @@ function updateTunnelUI(data) {
   const urlEl   = document.getElementById('tunnel-public-url');
   const step1   = document.getElementById('code-base-url');
   const banner  = document.getElementById('tunnel-banner');
+  const step1Desc = document.getElementById('step-1-desc');
+  const heroText = document.getElementById('hero-quickstart-text');
+
+  if (data.disabled) {
+    // Tunnel is disabled: remove / hide the entire tunnel card
+    if (banner) banner.style.display = 'none';
+
+    // Update Quickstart Step 1 to use direct host / domain URL
+    const directUrl = `${window.location.origin}/v1`;
+    if (step1) step1.textContent = directUrl;
+    if (step1Desc) {
+      step1Desc.innerHTML = 'In Cursor, go to <strong>Cursor Settings &gt; Models</strong> and enable <strong>Override OpenAI Base URL</strong>. Use the base URL below:';
+    }
+    if (heroText) {
+      heroText.textContent = "Copy your bridge URL and API key into Cursor's model settings. All prompts from Cursor Composer and Chat will automatically route to Antigravity.";
+    }
+    return;
+  }
+
+  if (banner) banner.style.display = '';
 
   if (data.active && data.cursorBaseUrl) {
     // READY
@@ -224,15 +256,15 @@ async function fetchModels() {
     }
 
     container.innerHTML = models.map(m => {
-      const tagClass = m.category === 'claude' ? 'claude' : m.category === 'gpt' ? 'gpt' : 'gemini';
-      const tagLabel = m.category === 'claude' ? 'Claude' : m.category === 'gpt' ? 'GPT' : 'Gemini';
+      const isClaude = m.category === 'claude' || m.category === 'kladue';
+      const tagClass = isClaude ? 'claude' : m.category === 'gpt' ? 'gpt' : 'gemini';
+      const tagLabel = isClaude ? 'Claude' : m.category === 'gpt' ? 'GPT' : 'Gemini';
 
       return `
         <div class="model-card">
           <div>
             <div class="model-card-header">
               <span class="model-tag ${tagClass}">${tagLabel}</span>
-              ${m.isRecommended ? '<span class="badge" style="background: rgba(16,185,129,0.15); color: #34d399;">Recommended</span>' : ''}
             </div>
             <div class="model-title">${escapeHtml(m.name)}</div>
             <div class="model-desc">${escapeHtml(m.description || '')}</div>
@@ -451,6 +483,9 @@ async function fetchAccounts() {
     const accounts = await res.json();
 
     wrapper.innerHTML = accounts.map(acc => {
+      const canDeleteSecondary = !acc.isDefault;
+      const canClearPrimary = acc.isDefault && (acc.email || (acc.status && acc.status !== 'Missing Token'));
+
       return `
         <div class="account-card ${acc.isActive ? 'active-account' : ''}">
           <div>
@@ -465,9 +500,26 @@ async function fetchAccounts() {
           </div>
           <div class="account-card-bottom">
             <span style="font-size: 0.78rem; color: var(--text-dim);">
-              ${acc.expiry ? `Expires: ${new Date(acc.expiry).toLocaleDateString()}` : 'Managed by Antigravity'}
+              ${acc.expiry ? `Expires: ${new Date(acc.expiry).toLocaleDateString()}` : (acc.isDefault ? 'Primary Antigravity Profile' : 'Secondary Token')}
             </span>
-            ${!acc.isActive ? `<button class="btn btn-outline btn-set-active" data-account-id="${escapeHtml(acc.id)}">Set Active</button>` : '<span style="font-size: 0.8rem; font-weight: 600; color: #a5b4fc;">Selected</span>'}
+            <div class="account-card-actions">
+              ${!acc.isActive ? `<button class="btn btn-outline btn-set-active" data-account-id="${escapeHtml(acc.id)}">Set Active</button>` : '<span style="font-size: 0.8rem; font-weight: 600; color: #a5b4fc; padding: 0 4px;">Active</span>'}
+              ${canDeleteSecondary ? `
+                <button class="btn btn-danger-outline btn-delete-account" data-account-id="${escapeHtml(acc.id)}" data-account-name="${escapeHtml(acc.name)}" title="Remove this account">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 3px; vertical-align: -1px;">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>Remove
+                </button>
+              ` : (canClearPrimary ? `
+                <button class="btn btn-danger-outline btn-delete-account" data-account-id="default" data-account-name="${escapeHtml(acc.name)}" title="Clear primary credentials">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 3px; vertical-align: -1px;">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>Clear
+                </button>
+              ` : '')}
+            </div>
           </div>
         </div>
       `;
@@ -498,6 +550,41 @@ async function fetchAccounts() {
           showToast('Active account switched');
         } catch (err) {
           showToast(`Error: ${err.message}`, true);
+        }
+      });
+    });
+
+    // Attach delete / remove handlers
+    document.querySelectorAll('.btn-delete-account').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-account-id');
+        const name = btn.getAttribute('data-account-name') || 'this account';
+        const isPrimary = id === 'default';
+        const confirmMsg = isPrimary
+          ? 'Are you sure you want to clear credentials for the primary account? You will need to re-authenticate.'
+          : `Are you sure you want to remove account "${name}"? Its credentials and isolated data will be deleted.`;
+
+        if (!confirm(confirmMsg)) return;
+
+        btn.disabled = true;
+        const originalText = btn.innerHTML;
+        btn.textContent = 'Removing...';
+        try {
+          const res = await fetch(`/api/accounts/${encodeURIComponent(id)}`, {
+            method: 'DELETE'
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Failed to remove account');
+          }
+          showToast(isPrimary ? 'Primary credentials cleared' : 'Account removed successfully');
+          await fetchAccounts();
+          fetchQuota();
+          fetchModels();
+        } catch (err) {
+          showToast(`Error: ${err.message}`, true);
+          btn.disabled = false;
+          btn.innerHTML = originalText;
         }
       });
     });

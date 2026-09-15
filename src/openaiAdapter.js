@@ -92,7 +92,7 @@ export async function handleChatCompletions(req, res) {
 
   const completionId = `chatcmpl-${crypto.randomBytes(12).toString('hex')}`;
   const createdTimestamp = Math.floor(Date.now() / 1000);
-  const targetModel = model || 'gemini-3.8-flash-high';
+  const targetModel = model || 'dominate-gemini-3.8-flash-high';
 
   // Abort controller only if client closes connection prematurely
   const abortController = new AbortController();
