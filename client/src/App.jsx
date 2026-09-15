@@ -7,6 +7,7 @@ import ModelsView from './views/ModelsView.jsx';
 import KeysView from './views/KeysView.jsx';
 import AccountsView from './views/AccountsView.jsx';
 import LoginView from './views/LoginView.jsx';
+import { apiFetch } from './api.js';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('quickstart');
@@ -27,14 +28,14 @@ export default function App() {
   };
 
   const fetchStatus = () => {
-    fetch('/api/status')
+    apiFetch('/api/status')
       .then(res => res.json())
       .then(data => setStatus(data))
       .catch(() => setStatus(null));
   };
 
   const fetchTunnel = () => {
-    fetch('/api/tunnel')
+    apiFetch('/api/tunnel')
       .then(res => res.json())
       .then(data => {
         setTunnelInfo(data);
@@ -43,13 +44,18 @@ export default function App() {
   };
 
   useEffect(() => {
+    const handleUnauthorized = () => setActiveTab('login');
+    window.addEventListener('dashboard-unauthorized', handleUnauthorized);
     fetchStatus();
     fetchTunnel();
     const interval = setInterval(() => {
       fetchStatus();
       fetchTunnel();
     }, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('dashboard-unauthorized', handleUnauthorized);
+    };
   }, []);
 
   return (

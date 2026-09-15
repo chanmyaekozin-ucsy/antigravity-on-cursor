@@ -24,12 +24,16 @@ export default function QuickstartView({ onNavigate, onCopy, tunnelInfo }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
               <span style={{ fontWeight: '600', fontSize: '0.88rem' }}>Serveo SSH Tunnel</span>
               <span className={`badge ${tunnelInfo.active ? 'badge-success' : 'badge-warning'}`}>
-                {tunnelInfo.active ? 'Active' : 'Starting…'}
+                {tunnelInfo.active ? 'Active' : tunnelInfo.blockedReason ? 'Blocked' : 'Starting…'}
               </span>
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
               {tunnelInfo.active
                 ? 'Public HTTPS tunnel active (bypasses Cursor\'s private-network restriction).'
+                : tunnelInfo.blockedReason === 'api_key_required'
+                ? 'Create an API key and restart the bridge before exposing it publicly.'
+                : tunnelInfo.blockedReason === 'dashboard_auth_required'
+                ? 'Configure dashboard credentials and restart the bridge before exposing it publicly.'
                 : 'Establishing public tunnel… takes 5–10 seconds.'}
             </div>
           </div>

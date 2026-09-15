@@ -1,5 +1,6 @@
 import http from 'http';
-import { exec, execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -10,8 +11,9 @@ const CLIENT_ID = GOOGLE_OAUTH_CONFIG.clientId;
 const CLIENT_SECRET = GOOGLE_OAUTH_CONFIG.clientSecret;
 const PORT = 8045;
 const REDIRECT_URI = `http://localhost:${PORT}/oauth-callback`;
-const TARGET_EMAIL = process.argv[2] || 'titi20260914@gmail.com';
+const TARGET_EMAIL = process.argv[2]?.trim() || '';
 const SCOPES = GOOGLE_OAUTH_CONFIG.scopes;
+const state = crypto.randomBytes(24).toString('hex');
 
 const authParams = new URLSearchParams({
   client_id: CLIENT_ID,
@@ -20,13 +22,14 @@ const authParams = new URLSearchParams({
   scope: SCOPES.join(' '),
   access_type: 'offline',
   prompt: 'consent select_account',
-  login_hint: TARGET_EMAIL
+  state,
+  ...(TARGET_EMAIL ? { login_hint: TARGET_EMAIL } : {})
 });
 
 const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${authParams.toString()}`;
 
 console.log('================================================================');
-console.log(`🔑 Antigravity Google OAuth Token Generator for: ${TARGET_EMAIL}`);
+console.log(`🔑 Antigravity Google OAuth Token Generator${TARGET_EMAIL ? ` for: ${TARGET_EMAIL}` : ''}`);
 console.log('================================================================\n');
 console.log(`1. Waiting for OAuth authorization on port ${PORT}...`);
 console.log(`2. If your browser does not open automatically, click this URL:\n\n${authUrl}\n`);
@@ -41,12 +44,13 @@ const server = http.createServer(async (req, res) => {
 
   const code = reqUrl.searchParams.get('code');
   const error = reqUrl.searchParams.get('error');
+  const returnedState = reqUrl.searchParams.get('state');
 
-  if (error || !code) {
+  if (returnedState !== state || error || !code) {
     res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<h2>Authorization failed: ${error || 'Missing code'}</h2>`);
-    console.error('❌ Authorization error:', error);
-    process.exit(1);
+    res.end('<h2>Authorization failed. Close this page and start the flow again.</h2>');
+    console.error('❌ Authorization failed: invalid state, provider error, or missing code.');
+    server.close();
     return;
   }
 
@@ -70,7 +74,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Fetch user profile info
-    let profile = { email: TARGET_EMAIL, name: TARGET_EMAIL.split('@')[0] };
+    let profile = { email: TARGET_EMAIL || null, name: TARGET_EMAIL ? TARGET_EMAIL.split('@')[0] : 'Google User' };
     try {
       const userResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: { Authorization: `Bearer ${tokenData.access_token}` }
@@ -93,9 +97,12 @@ const server = http.createServer(async (req, res) => {
 
     const pasteableJson = JSON.stringify(tokenPayload, null, 2);
 
-    // Save to ~/.gemini/titi-token.json
-    const tokenFilePath = path.join(os.homedir(), '.gemini', 'titi-token.json');
+    // Save to a predictable private local file.
+    const tokenDir = path.join(os.homedir(), '.gemini');
+    fs.mkdirSync(tokenDir, { recursive: true });
+    const tokenFilePath = path.join(tokenDir, 'antigravity-generated-token.json');
     fs.writeFileSync(tokenFilePath, pasteableJson, 'utf-8');
+    fs.chmodSync(tokenFilePath, 0o600);
 
     // Also auto-add to ~/.gemini/antigravity-cursor-config.json
     const configPath = path.join(os.homedir(), '.gemini', 'antigravity-cursor-config.json');
@@ -123,7 +130,8 @@ const server = http.createServer(async (req, res) => {
       } else {
         config.accounts.push(newAcc);
       }
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      fs.chmodSync(configPath, 0o600);
       console.log(`✅ Automatically registered account into ${configPath}`);
     } catch (cfgErr) {
       console.warn('⚠️ Could not update config file:', cfgErr.message);
@@ -160,23 +168,17 @@ const server = http.createServer(async (req, res) => {
         <div class="card">
           <div class="badge">✓</div>
           <h2>Token Generated Successfully!</h2>
-          <p>Authenticated as <span class="email">${profile.email || TARGET_EMAIL}</span>.</p>
+          <p>Authentication completed. The token was saved to your local <code>.gemini</code> directory.</p>
           <div class="notice">📋 Token has been automatically copied to your clipboard!</div>
-          <textarea readonly id="tok">${pasteableJson}</textarea>
-          <div>
-            <button onclick="navigator.clipboard.writeText(document.getElementById('tok').value); alert('Copied!');">Copy Token JSON</button>
-          </div>
         </div>
       </body>
       </html>
     `);
 
     console.log('\n================================================================');
-    console.log(`🎉 SUCCESS! Token generated for: ${profile.email || TARGET_EMAIL}`);
+    console.log(`🎉 SUCCESS! Token generated${profile.email ? ` for: ${profile.email}` : ''}`);
     console.log('================================================================\n');
-    console.log('--- PASTEABLE TOKEN JSON (also copied to clipboard): ---\n');
-    console.log(pasteableJson);
-    console.log('\n--------------------------------------------------------\n');
+    console.log(`Token saved with owner-only permissions at ${tokenFilePath}.`);
 
     setTimeout(() => {
       server.close();
@@ -194,12 +196,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`🚀 Local callback server listening on http://localhost:${PORT}/oauth-callback`);
   
-  // Try opening with Chrome Profile 10 (titi20260914@gmail.com)
-  const chromeCmd = `open -a "Google Chrome" --args --profile-directory="Profile 10" "${authUrl}"`;
-  exec(chromeCmd, (err) => {
-    if (err) {
-      // Fall back to default browser
-      exec(`open "${authUrl}"`);
-    }
-  });
+  if (process.platform === 'darwin') {
+    const opener = spawn('open', [authUrl], { detached: true, stdio: 'ignore' });
+    opener.unref();
+  }
 });

@@ -51,7 +51,8 @@ class AccountManager {
     try {
       const dir = path.dirname(CONFIG_PATH);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8');
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      fs.chmodSync(CONFIG_PATH, 0o600);
     } catch (err) {
       console.error('[AccountManager] Failed to save config:', err.message);
     }
@@ -308,7 +309,7 @@ class AccountManager {
     // On Linux or when DEFAULT_TOKEN_PATH is missing, also mirror to DEFAULT_TOKEN_PATH
     if (process.platform === 'linux' || !fs.existsSync(DEFAULT_TOKEN_PATH)) {
       try {
-        fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tokenObj, null, 2), 'utf-8');
+        fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tokenObj, null, 2), { encoding: 'utf-8', mode: 0o600 });
         this._ensureDefaultIdeDir();
       } catch {}
     }
@@ -328,7 +329,7 @@ class AccountManager {
       fs.writeFileSync(
         path.join(accDir, 'jetski-standalone-oauth-token'),
         JSON.stringify(tokenObj, null, 2),
-        'utf-8'
+        { encoding: 'utf-8', mode: 0o600 }
       );
 
       const ideDir = path.join(accDir, 'antigravity-ide');
@@ -428,7 +429,7 @@ class AccountManager {
       const tok = acc?.token?.token ? acc.token : acc?.token ? { token: acc.token, auth_method: 'consumer' } : null;
       if (tok) {
         try {
-          fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tok, null, 2), 'utf-8');
+          fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tok, null, 2), { encoding: 'utf-8', mode: 0o600 });
           this._ensureDefaultIdeDir();
         } catch {}
       }
@@ -557,7 +558,7 @@ class AccountManager {
           raw.token.access_token = refreshed.access_token;
           raw.token.expiry = refreshed.expiry;
           if (refreshed.refresh_token) raw.token.refresh_token = refreshed.refresh_token;
-          fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(raw, null, 2), 'utf-8');
+          fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(raw, null, 2), { encoding: 'utf-8', mode: 0o600 });
           return { accessToken: refreshed.access_token, account: { id: 'default', isDefault: true } };
         } catch (err) {
           console.warn('[AccountManager] Primary token refresh failed:', err.message);
@@ -849,10 +850,6 @@ class AccountManager {
     }
 
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-
-    if (token === 'sk-antigravity-default') {
-      return { valid: true, accountId: this.config.activeAccountId || 'default' };
-    }
 
     const match = this.config.apiKeys.find(k => k.key === token);
     if (match) {

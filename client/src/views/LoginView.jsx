@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch, setDashboardKey } from '../api.js';
 import { 
   Shield, 
   ShieldCheck, 
@@ -32,7 +33,7 @@ export default function LoginView({ onNavigateToDashboard, showToast }) {
 
   const endpointSnippet = `// Cursor IDE OpenAI API Endpoint Setup
 Base URL: http://localhost:8045/v1
-API Key:  sk-antigravity-bridge
+API Key:  <generated dashboard key>
 Model:    dominate-gemini-3.8-flash-high`;
 
   const handleCopyCode = () => {
@@ -46,7 +47,7 @@ Model:    dominate-gemini-3.8-flash-high`;
     setIsConnectingGoogle(true);
     setAlertInfo(null);
     try {
-      const res = await fetch('/api/accounts/login/url');
+      const res = await apiFetch('/api/accounts/login/url');
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -65,27 +66,23 @@ Model:    dominate-gemini-3.8-flash-high`;
     e.preventDefault();
     setAlertInfo(null);
 
-    const key = accessKey.trim();
-    if (!key) {
+    if (!accessKey.trim()) {
       setAlertInfo({ type: 'error', text: 'Please enter an API Key or Admin Passcode.' });
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/accounts', {
-        headers: {
-          'x-dashboard-key': key
-        }
+      const key = accessKey.trim();
+      const res = await apiFetch('/api/accounts', {
+        headers: { 'x-dashboard-key': key }
       });
-
-      if (res.status === 401) {
-        setAlertInfo({ type: 'error', text: 'Invalid password or credentials. Please check DASHBOARD_PASSWORD in .env.local.' });
-        setIsSubmitting(false);
-        return;
+      if (!res.ok) {
+        throw new Error(res.status === 401
+          ? 'Invalid dashboard credentials.'
+          : 'Could not verify dashboard credentials.');
       }
-
-      localStorage.setItem('antigravity_api_key', key);
+      setDashboardKey(key);
       setAlertInfo({ type: 'success', text: 'Sign in successful! Redirecting to Dashboard...' });
       if (showToast) showToast('Signed in successfully');
 
@@ -95,7 +92,7 @@ Model:    dominate-gemini-3.8-flash-high`;
         }
       }, 600);
     } catch (err) {
-      setAlertInfo({ type: 'error', text: err.message || 'Could not verify login credentials with server.' });
+      setAlertInfo({ type: 'error', text: err.message || 'Could not sign in.' });
       setIsSubmitting(false);
     }
   };

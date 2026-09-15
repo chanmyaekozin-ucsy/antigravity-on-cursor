@@ -59,10 +59,43 @@ function safeCompare(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function inlineJson(value) {
+  return JSON.stringify(value).replaceAll('<', '\\u003c');
+}
+
 const app = express();
 const PORT = process.env.PORT || 8045;
+const configuredCorsOrigins = new Set(
+  (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+);
 
-app.use(cors());
+app.use(cors((req, callback) => {
+  const origin = req.get('Origin');
+  let sameOrigin = false;
+  if (origin) {
+    try {
+      sameOrigin = new URL(origin).host === req.get('Host');
+    } catch {
+      sameOrigin = false;
+    }
+  }
+  callback(null, {
+    origin: !origin || sameOrigin || configuredCorsOrigins.has(origin),
+    credentials: false
+  });
+}));
 app.use(express.json({ limit: '40mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -89,12 +122,10 @@ app.use((req, res, next) => {
   // - /v1/* : OpenAI-compatible endpoints used by Cursor IDE
   // - /health : Docker/Coolify health monitoring
   // - /oauth-callback : Google OAuth browser redirect handler
-  // - /api/status : Basic status check for web dashboard
   if (
     req.path.startsWith('/v1') ||
     req.path === '/health' ||
-    req.path === '/oauth-callback' ||
-    req.path === '/api/status'
+    req.path === '/oauth-callback'
   ) {
     return next();
   }
@@ -149,7 +180,9 @@ app.get('/api/agent', (req, res) => {
     modes: ['agent', 'plan', 'ask'],
     features: {
       toolCalling: true,
-      cascadeSessionReuse: true,
+      cursorOrchestratedTools: true,
+      remoteToolExecution: false,
+      cascadeSessionReuse: process.env.ANTIGRAVITY_SESSION_REUSE === 'true',
       imageReading: true,
       modeDetection: true,
       thinkingStream: true,
@@ -298,6 +331,11 @@ app.get('/api/accounts/login/url', (req, res) => {
 // Google OAuth Redirect Callback Handler
 app.get('/oauth-callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
+  const redirectUri = `http://localhost:${PORT}/oauth-callback`;
+
+  if (!oauthManager.consumeState(state, redirectUri)) {
+    return res.status(400).send('Invalid or expired OAuth state. Start the sign-in flow again from the dashboard.');
+  }
 
   if (error) {
     return res.status(400).send(`
@@ -306,7 +344,7 @@ app.get('/oauth-callback', async (req, res) => {
       <head><title>OAuth Error</title>
       <style>body{font-family:sans-serif;background:#0b0f19;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
       .card{background:#1e293b;padding:32px;border-radius:12px;text-align:center;max-width:400px;border:1px solid #ef4444;}</style></head>
-      <body><div class="card"><h2>Authentication Failed</h2><p>${error_description || error}</p><button onclick="window.close()">Close</button></div></body>
+      <body><div class="card"><h2>Authentication Failed</h2><p>${escapeHtml(error_description || error)}</p><button onclick="window.close()">Close</button></div></body>
       </html>
     `);
   }
@@ -316,7 +354,6 @@ app.get('/oauth-callback', async (req, res) => {
   }
 
   try {
-    const redirectUri = `http://localhost:${PORT}/oauth-callback`;
     const tokens = await oauthManager.exchangeCode(code, redirectUri);
     const userInfo = await oauthManager.fetchUserInfo(tokens.access_token);
 
@@ -348,12 +385,12 @@ app.get('/oauth-callback', async (req, res) => {
         <div class="card">
           <div class="icon">✓</div>
           <h1>Google Account Connected</h1>
-          <p>Successfully authenticated as <span class="email">${userInfo?.email || 'Google User'}</span>.<br>You can safely close this window.</p>
+          <p>Successfully authenticated as <span class="email">${escapeHtml(userInfo?.email || 'Google User')}</span>.<br>You can safely close this window.</p>
           <button class="btn" onclick="window.close()">Close Window</button>
         </div>
         <script>
           if (window.opener) {
-            window.opener.postMessage({ type: 'GOOGLE_ACCOUNT_ADDED', email: '${userInfo?.email || ''}', accountId: '${account.id}' }, '*');
+            window.opener.postMessage({ type: 'GOOGLE_ACCOUNT_ADDED', email: ${inlineJson(userInfo?.email || '')}, accountId: ${inlineJson(account.id)} }, window.location.origin);
             setTimeout(() => window.close(), 1800);
           }
         </script>
@@ -367,7 +404,7 @@ app.get('/oauth-callback', async (req, res) => {
       <head><title>Connection Error</title>
       <style>body{font-family:sans-serif;background:#0b0f19;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
       .card{background:#1e293b;padding:32px;border-radius:12px;text-align:center;max-width:400px;border:1px solid #ef4444;}</style></head>
-      <body><div class="card"><h2>Authentication Error</h2><p>${err.message}</p><button onclick="window.close()">Close</button></div></body>
+      <body><div class="card"><h2>Authentication Error</h2><p>${escapeHtml(err.message)}</p><button onclick="window.close()">Close</button></div></body>
       </html>
     `);
   }
@@ -406,7 +443,7 @@ app.get('*', (req, res, next) => {
 });
 
 const server = app.listen(PORT, async () => {
-  const isTunnelDisabled = process.env.DISABLE_TUNNEL === 'true' || process.env.ENABLE_TUNNEL === 'false';
+  const isTunnelDisabled = process.env.ENABLE_TUNNEL !== 'true' || process.env.DISABLE_TUNNEL === 'true';
   const publicUrl = process.env.PUBLIC_URL || process.env.APP_URL;
 
   console.log(`
@@ -415,7 +452,7 @@ const server = app.listen(PORT, async () => {
 ==========================================================
   • Web Dashboard:    http://localhost:${PORT}${process.env.DASHBOARD_USERNAME && process.env.DASHBOARD_PASSWORD ? ' (🔒 Protected: ' + process.env.DASHBOARD_USERNAME + ')' : ' (🔓 Public)'}
   • Cursor Base URL:  http://localhost:${PORT}/v1
-  • Default API Key:  sk-antigravity-default
+  • API Authentication: ${accountManager.getKeys().length ? `${accountManager.getKeys().length} configured key(s)` : 'local-only until a key is created'}
 ${isTunnelDisabled ? `  • Public Domain:    ${publicUrl ? publicUrl : 'Managed via Coolify / Reverse Proxy'}` : `
   ⚡ Starting Serveo SSH Tunnel (bypasses Cursor's private-network block)...
      Your public Cursor Base URL will appear below shortly.`}
@@ -435,8 +472,15 @@ ${isTunnelDisabled ? `  • Public Domain:    ${publicUrl ? publicUrl : 'Managed
 ==========================================================
 `);
 
-  // Start Cloudflare tunnel — provides public HTTPS URL for Cursor
-  tunnelManager.start(PORT);
+  // Never expose an unauthenticated completion endpoint to the public internet.
+  const hasApiKeys = accountManager.getKeys().length > 0;
+  const hasDashboardAuth = Boolean(process.env.DASHBOARD_USERNAME && process.env.DASHBOARD_PASSWORD);
+  if (!isTunnelDisabled && (!hasApiKeys || !hasDashboardAuth)) {
+    tunnelManager.blockedReason = !hasApiKeys ? 'api_key_required' : 'dashboard_auth_required';
+    console.warn(`[Tunnel] Refusing to start: ${!hasApiKeys ? 'create an API key' : 'configure dashboard credentials'}, then restart the bridge.`);
+  } else {
+    tunnelManager.start(PORT);
+  }
   tunnelManager.once('url', (publicUrl) => {
     console.log(`
 ╔══════════════════════════════════════════════════════════╗

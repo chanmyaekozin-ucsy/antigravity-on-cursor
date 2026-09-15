@@ -63,6 +63,17 @@ class OAuthManager {
     };
   }
 
+  /** Consume a one-time OAuth state token and verify its redirect target. */
+  consumeState(state, redirectUri) {
+    if (typeof state !== 'string' || !state) return false;
+    const pending = this.pendingStates.get(state);
+    if (!pending) return false;
+
+    this.pendingStates.delete(state);
+    const isFresh = Date.now() - pending.createdAt <= 15 * 60 * 1000;
+    return isFresh && pending.redirectUri === redirectUri;
+  }
+
   /**
    * Exchange OAuth authorization code for tokens
    */

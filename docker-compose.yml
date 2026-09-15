@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   antigravity-bridge:
     build:
@@ -15,6 +13,7 @@ services:
       - PORT=8045
       - NODE_ENV=production
       - DISABLE_TUNNEL=true
+      - ENABLE_TUNNEL=false
       - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
     healthcheck:

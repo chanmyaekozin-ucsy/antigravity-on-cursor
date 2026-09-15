@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api.js';
 
 export default function KeysView({ onCopy, showToast }) {
   const [keys, setKeys] = useState([]);
@@ -15,7 +16,7 @@ export default function KeysView({ onCopy, showToast }) {
   const [generatedKey, setGeneratedKey] = useState(null);
 
   const fetchKeys = () => {
-    fetch('/api/keys')
+    apiFetch('/api/keys')
       .then(res => res.json())
       .then(data => {
         setKeys(data || []);
@@ -26,7 +27,7 @@ export default function KeysView({ onCopy, showToast }) {
 
   useEffect(() => {
     fetchKeys();
-    fetch('/api/accounts')
+    apiFetch('/api/accounts')
       .then(res => res.json())
       .then(data => setAccounts(data || []))
       .catch(() => {});
@@ -37,7 +38,7 @@ export default function KeysView({ onCopy, showToast }) {
     if (!newKeyName.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch('/api/keys', {
+      const res = await apiFetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,7 +51,7 @@ export default function KeysView({ onCopy, showToast }) {
 
       setIsCreateOpen(false);
       setNewKeyName('');
-      setGeneratedKey(data.key);
+      setGeneratedKey(data.secretKey);
       fetchKeys();
       showToast('API Key generated successfully');
     } catch (err) {
@@ -65,7 +66,7 @@ export default function KeysView({ onCopy, showToast }) {
       return;
     }
     try {
-      const res = await fetch(`/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to revoke key');

@@ -16,8 +16,9 @@
 - **🤖 Native Cursor Agent Integration (`nativeAgent.js`)**:
   - Full support for Cursor interaction modes: **Agent Mode**, **Plan Mode**, and **Ask Mode**.
   - Dual-mode tool invocation supporting both structured JSON function calling and Antigravity XML syntax.
-  - Multi-turn conversation fingerprinting preserving Cascade agent session context.
+  - Stateless multi-turn tool loops driven by Cursor's authoritative conversation state.
   - Multimodal media handling (inline images, screenshots) and intelligent middle-out context truncation.
+  - Strict Cursor-orchestrated mode: Cursor reads/writes local files and runs commands; the VPS only reasons and returns OpenAI tool calls.
 - **🧠 Frontier Model Fleet**:
   - `dominate-gemini-3.8-flash-high`
   - `gemini-3.8-flash-medium` / `gemini-3.8-flash-low`
@@ -26,8 +27,9 @@
 - **🔑 Multi-Account & Key Management (`accountManager.js`)**:
   - Rotate multiple Antigravity credentials to balance rate limits and quotas.
   - Generate virtual local API keys (`sk-antigravity-...`).
-- **🚇 Remote Access Tunneling (`tunnelManager.js`)**:
-  - Instant SSH-based tunneling (Serveo) to expose your bridge for remote machines or paired development.
+- **🚇 Optional Remote Access Tunneling (`tunnelManager.js`)**:
+  - Opt-in SSH-based tunneling (Serveo) for Cursor installations that cannot reach localhost.
+  - Refuses to expose the bridge until at least one generated API key exists.
 - **📊 Classical Premium Web Dashboard (`client/` & `dist/`)**:
   - Built-in React 19 web UI to inspect model quotas, monitor token limits, switch active accounts, and manage API keys.
 
@@ -84,15 +86,33 @@ By default, the server listens on **`http://localhost:8045`**.
 Connect Cursor to your local bridge in just a few clicks:
 
 1. Open **Cursor Settings** (`Cmd + ,` or `Ctrl + ,`).
-2. Navigate to **Features** → **Models**.
-3. Under **OpenAI API Key**, configure:
+2. Navigate to **Models**.
+3. In the dashboard's **API Keys** tab, generate a key. Then under **OpenAI API Key**, configure:
    - **Override OpenAI Base URL**: `http://localhost:8045/v1`
-   - **API Key**: Enter any generated local key (e.g. `sk-antigravity-local` or your key from the dashboard).
+   - **API Key**: Enter the generated dashboard key.
 4. Add your preferred model name(s) under **Model Names**:
    - `dominate-gemini-3.8-flash-high`
    - `gemini-3.8-flash-medium`
    - `gemini-3.7-flash-high`
 5. Switch to Agent mode in Cursor chat and start building!
+
+Cursor currently applies the OpenAI base URL override broadly rather than per custom model. Turn the override off when returning to Cursor-managed models. Custom API keys affect Chat/Agent; Cursor Tab completion continues to use Cursor's own models.
+
+### Cursor as orchestrator, VPS as brain
+
+This is the default architecture. Each request is stateless at the Antigravity Cascade layer, while Cursor sends the authoritative conversation and tool results on every turn. Local paths—including dragged log files—are explicitly marked as Cursor-local. If content is not embedded in the request, the model must return a Cursor-provided read/search tool call; it must never read the corresponding path on the VPS.
+
+Do not enable `ANTIGRAVITY_SESSION_REUSE` for normal VPS use. It exists only for compatibility experiments and can reintroduce stale Antigravity-native agent state.
+
+### Remote Cursor access
+
+Cursor may send custom-model requests through its servers, which cannot reach your machine's `localhost`. If direct local configuration fails:
+
+1. Create an API key in the dashboard and configure strong `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` values.
+2. Set `ENABLE_TUNNEL=true` and `DISABLE_TUNNEL=false` in `.env.local`.
+3. Restart the bridge and use the displayed HTTPS `/v1` URL.
+
+The public tunnel is disabled by default. Never expose the bridge without a generated API key and dashboard credentials.
 
 ---
 

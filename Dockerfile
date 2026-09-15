@@ -19,7 +19,19 @@ RUN curl -fsSL "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/sta
     && rm -rf /tmp/extract
 
 # ==========================================
-# Stage 2: Production Runtime
+# Stage 2: Build the dashboard
+# ==========================================
+FROM node:20-bookworm-slim AS dashboard-builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY client/ ./client/
+COPY vite.config.js ./
+RUN npm run build
+
+# ==========================================
+# Stage 3: Production Runtime
 # ==========================================
 FROM node:20-bookworm-slim
 
@@ -37,11 +49,11 @@ COPY --from=extractor /app/bin/language_server_linux_x64 /app/bin/language_serve
 
 # Copy dependencies & install
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Copy application code
 COPY src/ ./src/
-COPY dist/ ./dist/
+COPY --from=dashboard-builder /app/dist/ ./dist/
 
 # Environment configuration
 ENV NODE_ENV=production

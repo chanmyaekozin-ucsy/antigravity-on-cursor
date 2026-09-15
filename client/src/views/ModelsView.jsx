@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api.js';
 
 export default function ModelsView({ onCopy }) {
   const [models, setModels] = useState([]);
@@ -7,7 +8,7 @@ export default function ModelsView({ onCopy }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/models')
+    apiFetch('/api/models')
       .then(res => res.json())
       .then(data => {
         setModels(data || []);

@@ -19,17 +19,19 @@ class TunnelManager extends EventEmitter {
     this.started = false;
     this.retries = 0;
     this.maxRetries = 5;
+    this.blockedReason = null;
   }
 
   /** Start the tunnel pointing at localPort. Idempotent — safe to call multiple times. */
   start(localPort) {
-    if (process.env.DISABLE_TUNNEL === 'true' || process.env.ENABLE_TUNNEL === 'false') {
-      console.log('[Tunnel] Public tunnel disabled (running behind Coolify / external reverse proxy).');
+    if (process.env.ENABLE_TUNNEL !== 'true' || process.env.DISABLE_TUNNEL === 'true') {
+      console.log('[Tunnel] Public tunnel disabled. Set ENABLE_TUNNEL=true to opt in.');
       return;
     }
     if (this.started) return;
     this.started = true;
     this.stopped = false;
+    this.blockedReason = null;
     this._spawn(localPort);
   }
 
@@ -94,17 +96,19 @@ class TunnelManager extends EventEmitter {
     this.started = false;
     this.url = null;
     this.retries = 0;
+    this.blockedReason = null;
   }
 
   /** Returns the current tunnel status object for the API. */
   getStatus() {
-    const disabled = process.env.DISABLE_TUNNEL === 'true' || process.env.ENABLE_TUNNEL === 'false';
+    const disabled = process.env.ENABLE_TUNNEL !== 'true' || process.env.DISABLE_TUNNEL === 'true';
     return {
       disabled,
       active: !disabled && !!this.url,
       url: disabled ? null : this.url,
       cursorBaseUrl: (!disabled && this.url) ? `${this.url}/v1` : null,
       retries: this.retries,
+      blockedReason: this.blockedReason,
       provider: 'serveo'
     };
   }

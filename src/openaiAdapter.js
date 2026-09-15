@@ -1,11 +1,19 @@
 import { antigravity, MODEL_MAP } from './antigravityClient.js';
 import { accountManager } from './accountManager.js';
+import { cleanToolCallText } from './nativeAgent.js';
 import crypto from 'crypto';
 
 export async function handleModels(req, res) {
   try {
-    if (req.headers.authorization) {
-      accountManager.validateKey(req.headers.authorization);
+    const authCheck = accountManager.validateKey(req.headers.authorization);
+    if (!authCheck.valid) {
+      return res.status(401).json({
+        error: {
+          message: 'Invalid API key.',
+          type: 'invalid_request_error',
+          code: 'invalid_api_key'
+        }
+      });
     }
     const models = await antigravity.getModels();
     const data = models.map(m => ({
@@ -61,7 +69,7 @@ export async function handleChatCompletions(req, res) {
     || req.headers['x-conversation-id']
     || null;
 
-  // ── Verbose request log ──────────────────────────────────────────
+  const verboseRequestLogs = process.env.VERBOSE_REQUEST_LOGS === 'true';
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`[Request] ${new Date().toISOString()}`);
   console.log(`[Request] Model      : ${model || '(none — will default)'}`);
@@ -70,16 +78,16 @@ export async function handleChatCompletions(req, res) {
   console.log(`[Request] Tools      : ${(tools || []).length ? tools.map(t => t.function?.name || t.name).join(', ') : 'none'}`);
   console.log(`[Request] ToolChoice : ${typeof tool_choice === 'object' ? JSON.stringify(tool_choice) : tool_choice}`);
   console.log(`[Request] ConvoId    : ${conversationId || '(fingerprint from messages)'}`);
-  (messages || []).forEach((m, i) => {
-    let content = '';
-    if (typeof m.content === 'string') content = m.content;
-    else if (m.content == null && m.tool_calls) content = `[tool_calls x${m.tool_calls.length}]`;
-    else if (m.content != null) content = JSON.stringify(m.content);
-    else content = '';
-    console.log(`[Request]   [${i}] ${m.role}: ${content.slice(0, 120)}${content.length > 120 ? '…' : ''}`);
-  });
+  if (verboseRequestLogs) {
+    (messages || []).forEach((m, i) => {
+      let content = '';
+      if (typeof m.content === 'string') content = m.content;
+      else if (m.content == null && m.tool_calls) content = `[tool_calls x${m.tool_calls.length}]`;
+      else if (m.content != null) content = JSON.stringify(m.content);
+      console.log(`[Request]   [${i}] ${m.role}: ${content.slice(0, 120)}${content.length > 120 ? '…' : ''}`);
+    });
+  }
   console.log(`${'─'.repeat(60)}`);
-  // ────────────────────────────────────────────────────────────────
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({
@@ -295,9 +303,10 @@ export async function handleChatCompletions(req, res) {
             };
             res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
           } else {
-            // Flush any remaining unstreamed visible content
-            if (typeof fullText === 'string' && streamedContentLen < fullText.length) {
-              const missing = fullText.slice(streamedContentLen);
+            // Scrub any unparsed tool payload that might be in fullText before emitting to chat
+            const safeText = cleanToolCallText(fullText || '');
+            if (safeText && streamedContentLen < safeText.length) {
+              const missing = safeText.slice(streamedContentLen);
               if (missing) {
                 emitDelta(missing, 'content');
               }

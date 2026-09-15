@@ -9,7 +9,9 @@
     "dev": "node --watch src/server.js",
     "build": "vite build",
     "dev:client": "vite",
-    "token": "node scripts/generateToken.js"
+    "token": "node scripts/generateToken.js",
+    "test": "node --test",
+    "check": "npm test && npm run build"
   },
   "keywords": [
     "antigravity",

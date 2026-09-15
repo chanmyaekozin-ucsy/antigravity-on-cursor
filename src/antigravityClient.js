@@ -13,10 +13,7 @@ import {
   toolPayloadStartIndex,
   conversationFingerprint,
   scrubAssistantText,
-  setActiveMessages,
-  synthesizeDeleteToolCall,
-  synthesizeRepoInspectToolCall,
-  synthesizeReadmeWriteToolCall
+  setActiveMessages
 } from './nativeAgent.js';
 
 // Model dictionary mapping friendly IDs and labels to internal Antigravity model identifiers
@@ -728,7 +725,11 @@ class AntigravityClient {
 
     // Compute stable conversation fingerprint for Cascade session reuse
     const fingerprint = conversationFingerprint(messages, conversationId);
-    let session = this.cascadeSessions.get(fingerprint);
+    // Cursor already sends the complete OpenAI conversation on every tool-loop turn.
+    // Reusing Cascade state can revive Antigravity-native tool plans against the VPS.
+    // Keep the remote model stateless unless an operator explicitly opts in.
+    const reuseCascadeSessions = process.env.ANTIGRAVITY_SESSION_REUSE === 'true';
+    let session = reuseCascadeSessions ? this.cascadeSessions.get(fingerprint) : null;
     let cascadeId = session?.cascadeId || null;
     let initialStepOffset = session?.lastStepOffset || 0;
     let isReused = Boolean(cascadeId);
@@ -756,7 +757,10 @@ class AntigravityClient {
       'dominate-klaude-opus-4-6-thinking': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-pro-agent'],
       'dominate-klaude-sonnet-4-6': ['dominate-gemini-pro-agent', 'dominate-gemini-3.8-flash-high'],
       'dominate-klaude-3-7-sonnet': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-pro-agent'],
-      // Compatibility with claude spelling
+      // Compatibility with bare model names
+      'gemini-3.8-flash-high': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'gemini-3.8-flash-medium': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'gemini-pro': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
       'dominate-claude-sonnet-4-6': ['dominate-gemini-pro-agent', 'dominate-gemini-3.8-flash-high'],
       'claude-sonnet-4-6': ['dominate-gemini-pro-agent', 'dominate-gemini-3.8-flash-high']
     };
@@ -855,6 +859,9 @@ class AntigravityClient {
             },
             onDone
           });
+          if (!reuseCascadeSessions) {
+            this.cascadeSessions.drop(fingerprint);
+          }
           return; // Success!
         } catch (err) {
           lastError = err;
@@ -910,9 +917,9 @@ class AntigravityClient {
             break;
           }
 
-          // Check if error is a rate limit, quota exhaustion, model overload, or unauthenticated token
+          // Check if error is a rate limit, quota exhaustion, model overload, or capacity unavailability
           const isModelNotFound = /unknown model key|model not found/i.test(err.message);
-          const isRateLimit = !isModelNotFound && /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(err.message);
+          const isRateLimit = !isModelNotFound && /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity|429|503|UNAVAILABLE|exhausted|overloaded|server is busy|temporarily unavailable/i.test(err.message);
           const isAuthError = /UNAUTHENTICATED|CREDENTIALS_MISSING|invalid_grant|401/i.test(err.message);
           const isLocationError = /location is not supported/i.test(err.message);
 
@@ -1017,9 +1024,9 @@ class AntigravityClient {
         return;
       }
 
-      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(cleanError.message || '') && !/unknown model key|model not found/i.test(cleanError.message || '');
+      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity|429|503|UNAVAILABLE|exhausted|overloaded|server is busy|temporarily unavailable/i.test(cleanError.message || '') && !/unknown model key|model not found/i.test(cleanError.message || '');
       if (isQuota) {
-        const friendlyError = new Error(`Google Antigravity quota/capacity limit reached on model '${modelId}'. Tip: Switch to Claude Sonnet 4.6 (Thinking) or Gemini Pro in Cursor, or add another Google account in the dashboard.`);
+        const friendlyError = new Error(`Google Antigravity capacity/quota limit reached on model '${modelId}'. Tip: Switch to Claude Sonnet 4.6 (Thinking) or Gemini Pro in Cursor, or add another Google account in the dashboard.`);
         onError(friendlyError);
       } else {
         onError(cleanError);
@@ -1191,6 +1198,7 @@ class AntigravityClient {
     let streamedThinkingCount = 0;
     let isFinished = false;
     let finalPlannerToolCalls = null;
+    let interceptedCursorToolCalls = null;
     let finalModelUsage = null;
     const maxPolls = 400; // ~100s polling window
     let pollCount = 0;
@@ -1301,6 +1309,29 @@ class AntigravityClient {
 
       if (plannerStep.plannerResponse?.toolCalls) {
         finalPlannerToolCalls = plannerStep.plannerResponse.toolCalls;
+        if (hasTools) {
+          const cursorCalls = extractToolCalls('', finalPlannerToolCalls, tools, tool_choice);
+          if (cursorCalls?.length) {
+            // Antigravity Cascade may try to execute planner calls on the VPS. Stop
+            // that trajectory immediately and hand the calls back to Cursor instead.
+            interceptedCursorToolCalls = cursorCalls;
+            try {
+              await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-codeium-csrf-token': targetCsrf
+                },
+                body: JSON.stringify({
+                  cascadeId: currentCascadeId,
+                  killBackgroundTasks: true
+                })
+              });
+            } catch {}
+            isFinished = true;
+            break;
+          }
+        }
       }
       if (plannerStep.metadata?.modelUsage) {
         finalModelUsage = plannerStep.metadata.modelUsage;
@@ -1335,30 +1366,19 @@ class AntigravityClient {
     // Extract tool calls if tools are available
     let toolCalls = null;
     if (hasTools) {
-      toolCalls = extractToolCalls(
+      toolCalls = interceptedCursorToolCalls || extractToolCalls(
         accumulatedText,
         finalPlannerToolCalls,
         tools,
         tool_choice
       );
-      // Fallback intent synthesis if model didn't emit a formal tool call
-      if (!toolCalls || toolCalls.length === 0) {
-        const delCall = synthesizeDeleteToolCall(tools, messageToSend, messages);
-        if (delCall) {
-          toolCalls = delCall;
-        } else {
-          const repoInspect = synthesizeRepoInspectToolCall(tools, messageToSend, messages);
-          if (repoInspect) {
-            toolCalls = repoInspect;
-          } else {
-            const readmeWrite = synthesizeReadmeWriteToolCall(tools, messages);
-            if (readmeWrite) toolCalls = readmeWrite;
-          }
-        }
-      }
     }
 
-    const cleanText = (toolCalls && toolCalls.length > 0)
+    const hasToolPayload = (toolCalls && toolCalls.length > 0)
+      || /"tool_calls"|"function_call"|<tool_call|<tool_code/i.test(accumulatedText)
+      || toolPayloadStartIndex(accumulatedText) >= 0;
+
+    const cleanText = hasToolPayload
       ? scrubAssistantText(accumulatedText)
       : accumulatedText;
 

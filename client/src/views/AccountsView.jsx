@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api.js';
 
 export default function AccountsView({ showToast }) {
   const [accounts, setAccounts] = useState([]);
@@ -17,7 +18,7 @@ export default function AccountsView({ showToast }) {
   const [submitting, setSubmitting] = useState(false);
 
   const fetchAccounts = () => {
-    fetch('/api/accounts')
+    apiFetch('/api/accounts')
       .then(res => res.json())
       .then(data => {
         const accs = data || [];
@@ -36,7 +37,7 @@ export default function AccountsView({ showToast }) {
     const target = accId || selectedAccountId;
     if (!target) return;
     setQuotaLoading(true);
-    fetch(`/api/quota?accountId=${encodeURIComponent(target)}`)
+    apiFetch(`/api/quota?accountId=${encodeURIComponent(target)}`)
       .then(res => res.json())
       .then(data => {
         setQuota(data);
@@ -50,7 +51,7 @@ export default function AccountsView({ showToast }) {
 
   useEffect(() => {
     fetchAccounts();
-    fetch('/api/accounts/settings')
+    apiFetch('/api/accounts/settings')
       .then(res => res.json())
       .then(data => {
         if (data && data.autoSwitchOnLimit !== undefined) {
@@ -69,7 +70,7 @@ export default function AccountsView({ showToast }) {
   const handleToggleAutoSwitch = async (val) => {
     setAutoSwitch(val);
     try {
-      await fetch('/api/accounts/settings', {
+      await apiFetch('/api/accounts/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ autoSwitchOnLimit: val })
@@ -82,7 +83,7 @@ export default function AccountsView({ showToast }) {
 
   const handleSetActive = async (id) => {
     try {
-      const res = await fetch('/api/accounts/active', {
+      const res = await apiFetch('/api/accounts/active', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountId: id })
@@ -104,7 +105,7 @@ export default function AccountsView({ showToast }) {
     if (!confirm(confirmMsg)) return;
 
     try {
-      const res = await fetch(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to remove account');
       showToast(isPrimary ? 'Primary credentials cleared' : 'Account removed successfully');
@@ -116,7 +117,7 @@ export default function AccountsView({ showToast }) {
 
   const handleStartOAuth = async () => {
     try {
-      const res = await fetch('/api/accounts/login/url');
+      const res = await apiFetch('/api/accounts/login/url');
       const data = await res.json();
       if (!res.ok || !data.url) throw new Error(data.error || 'Failed to get login URL');
 
@@ -148,7 +149,7 @@ export default function AccountsView({ showToast }) {
     if (!pastedToken.trim()) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/accounts', {
+      const res = await apiFetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -174,7 +175,7 @@ export default function AccountsView({ showToast }) {
 
   const handleClearRateLimits = async () => {
     try {
-      const res = await fetch('/api/accounts/clear-limits', {
+      const res = await apiFetch('/api/accounts/clear-limits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
