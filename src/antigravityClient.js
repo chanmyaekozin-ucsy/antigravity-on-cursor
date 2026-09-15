@@ -1174,6 +1174,20 @@ class AntigravityClient {
         const errDetails = (specificError && specificError !== userMsg)
           ? `${userMsg ? userMsg + ': ' : ''}${specificError}`
           : (specificError || userMsg || 'Agent error');
+
+        // Triage: tool-execution errors (file not found, invalid tool call, permission
+        // denied, etc.) are RECOVERABLE — relay as a soft text response so Cursor's
+        // model can see what went wrong and retry rather than killing the whole stream.
+        const isRecoverableToolError = /invalid tool call|failed to read file|no such file|permission denied|invalid_args|not found|enoent/i.test(errDetails);
+
+        if (isRecoverableToolError) {
+          // Emit the error as visible text — Cursor's agent loop will handle it
+          onDelta(`\n\n> ⚠️ Tool execution error: ${errDetails}\n`);
+          isFinished = true;
+          break;
+        }
+
+        // Truly fatal (auth, unsupported model, server crash) — drop session and throw
         this.cascadeSessions.drop(fingerprint);
         throw new Error(errDetails);
       }
