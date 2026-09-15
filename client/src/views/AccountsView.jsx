@@ -140,6 +140,21 @@ export default function AccountsView({ showToast }) {
     }
   };
 
+  const handleClearRateLimits = async () => {
+    try {
+      const res = await fetch('/api/accounts/clear-limits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (!res.ok) throw new Error('Failed to reset rate limits');
+      showToast('All rate limit cooldowns reset');
+      fetchAccounts();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  };
+
   return (
     <div className="accounts-view">
       <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
@@ -147,9 +162,14 @@ export default function AccountsView({ showToast }) {
           <h2>Google Accounts &amp; Auto-Switching</h2>
           <p>Connect multiple accounts to expand quota ceilings and enable zero-downtime rate limit rotation.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
-          + Add Google Account
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button className="btn btn-outline" onClick={handleClearRateLimits} title="Clear temporary rate-limit cooldowns across all accounts">
+            Reset Cooldowns
+          </button>
+          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
+            + Add Google Account
+          </button>
+        </div>
       </div>
 
       {/* Auto-switch Setting Card */}
@@ -216,8 +236,14 @@ export default function AccountsView({ showToast }) {
                 </div>
 
                 <div className="account-card-bottom">
-                  <span style={{ fontSize: '0.76rem', color: 'var(--text-dim)' }}>
-                    {acc.expiry ? `Expires: ${new Date(acc.expiry).toLocaleDateString()}` : acc.isDefault ? 'Managed Locally' : 'Active Token'}
+                  <span style={{ fontSize: '0.76rem', color: isRateLimited ? 'var(--warning)' : 'var(--text-dim)', fontWeight: isRateLimited ? '500' : 'normal' }}>
+                    {isRateLimited
+                      ? `⏳ Cooldown (${acc.cooldownRemaining || 0}s remaining)`
+                      : acc.expiry
+                      ? `Expires: ${new Date(acc.expiry).toLocaleDateString()}`
+                      : acc.isDefault
+                      ? 'Managed Locally'
+                      : 'Active Token'}
                   </span>
                   <div className="account-actions">
                     {!acc.isActive ? (
