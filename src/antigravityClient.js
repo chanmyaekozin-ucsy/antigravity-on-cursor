@@ -25,35 +25,35 @@ export const MODEL_MAP = {
   'dominate-gemini-3.8-flash-high': {
     id: 'dominate-gemini-3.8-flash-high',
     name: 'Gemini 3.8 Flash (High)',
-    model: 'MODEL_PLACEHOLDER_M318',
+    model: 'MODEL_PLACEHOLDER_M71',
     category: 'gemini',
     description: 'Ultra-fast flagship with high reasoning effort'
   },
   'dominate-gemini-3.8-flash-medium': {
     id: 'dominate-gemini-3.8-flash-medium',
     name: 'Gemini 3.8 Flash (Medium)',
-    model: 'MODEL_PLACEHOLDER_M319',
+    model: 'MODEL_PLACEHOLDER_M72',
     category: 'gemini',
     description: 'Fast flagship with medium reasoning effort'
   },
   'dominate-gemini-3.8-flash-low': {
     id: 'dominate-gemini-3.8-flash-low',
     name: 'Gemini 3.8 Flash (Low)',
-    model: 'MODEL_PLACEHOLDER_M320',
+    model: 'MODEL_PLACEHOLDER_M73',
     category: 'gemini',
     description: 'Fast flagship with low reasoning effort'
   },
   'dominate-gemini-3.7-flash-high': {
     id: 'dominate-gemini-3.7-flash-high',
     name: 'Gemini 3.7 Flash (High)',
-    model: 'MODEL_PLACEHOLDER_M318',
+    model: 'MODEL_PLACEHOLDER_M71',
     category: 'gemini',
     description: 'Fast and versatile with high reasoning'
   },
   'dominate-gemini-3.7-flash-medium': {
     id: 'dominate-gemini-3.7-flash-medium',
     name: 'Gemini 3.7 Flash (Medium)',
-    model: 'MODEL_PLACEHOLDER_M319',
+    model: 'MODEL_PLACEHOLDER_M72',
     category: 'gemini',
     description: 'Balanced speed and intelligence'
   },
@@ -422,9 +422,13 @@ class AntigravityClient {
 
       const child = spawn(binaryPath, [
         '--standalone=true',
-        '--subclient_type=cli',
+        '--subclient_type=ide',
+        '--app_data_dir=antigravity-ide',
+        '--cloud_code_endpoint=https://daily-cloudcode-pa.googleapis.com',
+        '--override_ide_name=antigravity',
+        '--override_ide_version=1.107.0',
+        '--override_user_agent_name=antigravity/1.107.0',
         `--gemini_dir=${accDir}`,
-        '--cloud_code_endpoint=https://cloudcode-pa.googleapis.com',
         `--csrf_token=${csrf}`,
         `--http_server_port=${port}`
       ], {
@@ -549,14 +553,19 @@ class AntigravityClient {
   async _launchStandalone(binaryPath) {
     const defaultGeminiDir = path.join(os.homedir(), '.gemini');
     try {
+      accountManager._ensureDefaultIdeDir();
       const port = await this._getFreePort();
       const csrf = crypto.randomUUID();
       const logFd = fs.openSync('/tmp/antigravity-language-server.log', 'a');
       const child = spawn(binaryPath, [
         '--standalone=true',
-        '--subclient_type=cli',
+        '--subclient_type=ide',
+        '--app_data_dir=antigravity-ide',
+        '--cloud_code_endpoint=https://daily-cloudcode-pa.googleapis.com',
+        '--override_ide_name=antigravity',
+        '--override_ide_version=1.107.0',
+        '--override_user_agent_name=antigravity/1.107.0',
         `--gemini_dir=${defaultGeminiDir}`,
-        '--cloud_code_endpoint=https://cloudcode-pa.googleapis.com',
         `--csrf_token=${csrf}`,
         `--http_server_port=${port}`
       ], {
@@ -845,15 +854,21 @@ class AntigravityClient {
           }
 
           // Check if error is a rate limit, quota exhaustion, model overload, or unauthenticated token
-          const isRateLimit = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded|Agent execution terminated due to error/i.test(err.message);
+          const isModelNotFound = /unknown model key|model not found/i.test(err.message);
+          const isRateLimit = !isModelNotFound && /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(err.message);
           const isAuthError = /UNAUTHENTICATED|CREDENTIALS_MISSING|invalid_grant|401/i.test(err.message);
+
+          if (isModelNotFound) {
+            console.warn(`[Antigravity] Model key '${internalModel}' is not supported on account '${currentAccountId}':`, err.message);
+            break; // Break account loop to fall back in model chain
+          }
 
           if ((isRateLimit || isAuthError) && accountManager.config.autoSwitchOnLimit) {
             const cooldown = isAuthError ? 900 : 600;
             // For quota limits, cool down this specific model category; for auth errors, cool down the account globally
             accountManager.markRateLimited(currentAccountId, cooldown, isAuthError ? null : currentModelId);
             const reason = isAuthError ? 'authentication failure' : 'rate/quota/overload limit';
-            console.warn(`[Antigravity] Account '${currentAccountId}' hit ${reason} on model '${currentModelId}'.`);
+            console.warn(`[Antigravity] Account '${currentAccountId}' hit ${reason} on model '${currentModelId}':`, err.message);
 
             const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel, currentModelId);
             if (nextAcc) {
@@ -890,7 +905,7 @@ class AntigravityClient {
 
     if (lastError) {
       this.cascadeSessions.drop(fingerprint);
-      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded|Agent execution terminated due to error/i.test(lastError.message || '');
+      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(lastError.message || '') && !/unknown model key|model not found/i.test(lastError.message || '');
       if (isQuota) {
         const friendlyError = new Error(`Google Antigravity quota/capacity limit reached on model '${modelId}'. Tip: Switch to Claude Sonnet 4.6 (Thinking) or Gemini Pro in Cursor, or add another Google account in the dashboard.`);
         onError(friendlyError);
@@ -1114,12 +1129,23 @@ class AntigravityClient {
         const type = step.type;
 
         if (type === 'CORTEX_STEP_TYPE_ERROR_MESSAGE') {
-          const errDetails = step.errorMessage?.error?.userErrorMessage || step.errorMessage?.error?.shortError || 'Agent error';
+          const rawErr = step.errorMessage?.error;
+          const specificError = rawErr?.shortError || rawErr?.modelErrorMessage;
+          const userMsg = rawErr?.userErrorMessage;
+          const errDetails = (specificError && specificError !== userMsg)
+            ? `${userMsg ? userMsg + ': ' : ''}${specificError}`
+            : (specificError || userMsg || 'Agent error');
           this.cascadeSessions.drop(fingerprint);
           throw new Error(errDetails);
         }
 
         if (type === 'CORTEX_STEP_TYPE_PLANNER_RESPONSE') {
+          const fullResponse = step.plannerResponse?.modifiedResponse || step.plannerResponse?.response || '';
+          if (/This version of Antigravity is no longer supported/i.test(fullResponse)) {
+            this.cascadeSessions.drop(fingerprint);
+            throw new Error(fullResponse);
+          }
+
           // 1. Stream real-time extended thinking deltas to Cursor
           const thinkingText = step.plannerResponse?.thinking || '';
           if (thinkingText.length > streamedThinkingCount) {
@@ -1130,7 +1156,6 @@ class AntigravityClient {
             }
           }
 
-          const fullResponse = step.plannerResponse?.modifiedResponse || step.plannerResponse?.response || '';
           if (step.plannerResponse?.toolCalls) {
             finalPlannerToolCalls = step.plannerResponse.toolCalls;
           }

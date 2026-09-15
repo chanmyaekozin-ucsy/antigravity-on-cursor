@@ -309,6 +309,7 @@ class AccountManager {
     if (process.platform === 'linux' || !fs.existsSync(DEFAULT_TOKEN_PATH)) {
       try {
         fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tokenObj, null, 2), 'utf-8');
+        this._ensureDefaultIdeDir();
       } catch {}
     }
 
@@ -329,6 +330,21 @@ class AccountManager {
         JSON.stringify(tokenObj, null, 2),
         'utf-8'
       );
+
+      const ideDir = path.join(accDir, 'antigravity-ide');
+      fs.mkdirSync(ideDir, { recursive: true });
+      const installIdPath = path.join(ideDir, 'installation_id');
+      if (!fs.existsSync(installIdPath)) {
+        fs.writeFileSync(installIdPath, crypto.randomUUID(), 'utf-8');
+      }
+      const pbtxtPath = path.join(ideDir, 'jetski_state.pbtxt');
+      if (!fs.existsSync(pbtxtPath)) {
+        fs.writeFileSync(
+          pbtxtPath,
+          'post_onboarding: {\n  completed_steps: POST_ONBOARDING_STEP_TYPE_MANAGER_WELCOME\n  completed_steps: POST_ONBOARDING_STEP_TYPE_USAGE_MODE\n  completed_steps: POST_ONBOARDING_STEP_TYPE_AGENT_CONFIGURATION\n  completed_steps: POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE\n}\ninstallation_uuid: "' + crypto.randomUUID() + '"\nmigrations: {\n  key: 3\n  value: MIGRATION_STATUS_COMPLETED\n}\n',
+          'utf-8'
+        );
+      }
     } catch (err) {
       console.error(`[AccountManager] Failed to write account directory for ${accountId}:`, err.message);
     }
@@ -413,6 +429,7 @@ class AccountManager {
       if (tok) {
         try {
           fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tok, null, 2), 'utf-8');
+          this._ensureDefaultIdeDir();
         } catch {}
       }
     }
@@ -421,6 +438,25 @@ class AccountManager {
     this.syncActiveAccountToKeychain().catch(() => {});
 
     return true;
+  }
+
+  _ensureDefaultIdeDir() {
+    try {
+      const defaultIdeDir = path.join(os.homedir(), '.gemini', 'antigravity-ide');
+      fs.mkdirSync(defaultIdeDir, { recursive: true });
+      const installIdPath = path.join(defaultIdeDir, 'installation_id');
+      if (!fs.existsSync(installIdPath)) {
+        fs.writeFileSync(installIdPath, crypto.randomUUID(), 'utf-8');
+      }
+      const pbtxtPath = path.join(defaultIdeDir, 'jetski_state.pbtxt');
+      if (!fs.existsSync(pbtxtPath)) {
+        fs.writeFileSync(
+          pbtxtPath,
+          'post_onboarding: {\n  completed_steps: POST_ONBOARDING_STEP_TYPE_MANAGER_WELCOME\n  completed_steps: POST_ONBOARDING_STEP_TYPE_USAGE_MODE\n  completed_steps: POST_ONBOARDING_STEP_TYPE_AGENT_CONFIGURATION\n  completed_steps: POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE\n}\ninstallation_uuid: "' + crypto.randomUUID() + '"\nmigrations: {\n  key: 3\n  value: MIGRATION_STATUS_COMPLETED\n}\n',
+          'utf-8'
+        );
+      }
+    } catch {}
   }
 
   /**
