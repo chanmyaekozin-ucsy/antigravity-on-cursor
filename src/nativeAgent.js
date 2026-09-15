@@ -455,10 +455,11 @@ function formatMessage(m) {
   }
   if (m.role === 'assistant') {
     let text = extractText(m.content) || '';
-    if (isMetaLeakText(text) || isWeakOrNonAnswer(text)) {
+    const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+    if (isMetaLeakText(text) || (!hasToolCalls && isWeakOrNonAnswer(text))) {
       text = '[prior assistant turn omitted]';
     }
-    if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+    if (hasToolCalls) {
       const calls = m.tool_calls.map(tc => {
         const name = tc.function?.name || tc.name;
         const args = tc.function?.arguments ?? tc.arguments ?? {};

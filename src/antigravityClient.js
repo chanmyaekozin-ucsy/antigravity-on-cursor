@@ -315,8 +315,17 @@ class AntigravityClient {
   async _fetch(url, options = {}) {
     const isLocalHttps = url.startsWith('https://127.0.0.1') || url.startsWith('https://localhost');
     if (isLocalHttps) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+    const timeoutMs = options.timeout || 35000;
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const combinedSignal = options.signal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
+
     try {
-      return await fetch(url, options);
+      const fetchOpts = { ...options, signal: combinedSignal };
+      delete fetchOpts.timeout;
+      return await fetch(url, fetchOpts);
     } finally {
       if (isLocalHttps) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1';
     }
@@ -853,14 +862,37 @@ class AntigravityClient {
             return;
           }
 
+          // If request timed out, stop immediately rather than trying multiple models for minutes
+          const isTimeout = /Timed out/i.test(err.message);
+          if (isTimeout) {
+            console.warn(`[Antigravity] Request timed out on model '${currentModelId}'. Aborting model failover chain.`);
+            break;
+          }
+
           // Check if error is a rate limit, quota exhaustion, model overload, or unauthenticated token
           const isModelNotFound = /unknown model key|model not found/i.test(err.message);
           const isRateLimit = !isModelNotFound && /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded/i.test(err.message);
           const isAuthError = /UNAUTHENTICATED|CREDENTIALS_MISSING|invalid_grant|401/i.test(err.message);
+          const isLocationError = /location is not supported/i.test(err.message);
 
           if (isModelNotFound) {
             console.warn(`[Antigravity] Model key '${internalModel}' is not supported on account '${currentAccountId}':`, err.message);
             break; // Break account loop to fall back in model chain
+          }
+
+          if (isLocationError) {
+            console.warn(`[Antigravity] Account '${currentAccountId}' hit location restriction:`, err.message);
+            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel, currentModelId);
+            if (nextAcc) {
+              console.log(`[Antigravity] Location failover: switching from ${currentAccountId} to ${nextAcc.id}...`);
+              currentAccountId = nextAcc.id;
+              isReused = false;
+              cascadeId = null;
+              this.cascadeSessions.drop(fingerprint);
+              turn = buildNativeTurn({ messages, tools, tool_choice, mode: resolvedMode, reuseSession: false });
+              continue;
+            }
+            break;
           }
 
           if ((isRateLimit || isAuthError) && accountManager.config.autoSwitchOnLimit) {
@@ -900,6 +932,10 @@ class AntigravityClient {
             try { conn = await this.getConnection(currentAccountId); } catch {}
           }
         }
+      }
+
+      if (/Timed out/i.test(lastError?.message || '')) {
+        break; // Stop outer model chain as well
       }
     }
 
@@ -1080,10 +1116,9 @@ class AntigravityClient {
     let isFinished = false;
     let finalPlannerToolCalls = null;
     let finalModelUsage = null;
-    const maxPolls = 240;
+    const maxPolls = 400; // ~100s polling window
     let pollCount = 0;
-    let turnTotalSteps = 0;
-    let pollInterval = 60;
+    let pollInterval = 80;
 
     while (!isFinished && pollCount < maxPolls) {
       if (signal?.aborted) {
@@ -1105,8 +1140,9 @@ class AntigravityClient {
 
       await new Promise(r => setTimeout(r, pollInterval));
       pollCount++;
-      if (pollInterval < 250) pollInterval = Math.min(250, Math.floor(pollInterval * 1.35));
+      if (pollInterval < 250) pollInterval = Math.min(250, Math.floor(pollInterval * 1.3));
 
+      // Always poll full trajectory (stepOffset: 0) to guarantee zero offset-skew across turns
       const stepsResp = await this._fetch(`${targetUrl}/exa.language_server_pb.LanguageServerService/GetCascadeTrajectorySteps`, {
         method: 'POST',
         headers: {
@@ -1115,7 +1151,7 @@ class AntigravityClient {
         },
         body: JSON.stringify({
           cascadeId: currentCascadeId,
-          stepOffset: currentStepOffset
+          stepOffset: 0
         }),
         signal
       });
@@ -1123,74 +1159,77 @@ class AntigravityClient {
       if (!stepsResp.ok) continue;
       const stepsData = await stepsResp.json();
       const steps = stepsData.steps || [];
-      turnTotalSteps = steps.length;
+      if (steps.length === 0) continue;
 
-      for (const step of steps) {
-        const type = step.type;
+      // Find the latest user input step to isolate this turn from historical turns
+      const lastUserIdx = steps.findLastIndex(s => s.type === 'CORTEX_STEP_TYPE_USER_INPUT');
+      const relevantSteps = lastUserIdx >= 0 ? steps.slice(lastUserIdx) : steps;
 
-        if (type === 'CORTEX_STEP_TYPE_ERROR_MESSAGE') {
-          const rawErr = step.errorMessage?.error;
-          const specificError = rawErr?.shortError || rawErr?.modelErrorMessage;
-          const userMsg = rawErr?.userErrorMessage;
-          const errDetails = (specificError && specificError !== userMsg)
-            ? `${userMsg ? userMsg + ': ' : ''}${specificError}`
-            : (specificError || userMsg || 'Agent error');
-          this.cascadeSessions.drop(fingerprint);
-          throw new Error(errDetails);
+      // 1. Check for backend error step FIRST
+      const errorStep = relevantSteps.find(s => s.type === 'CORTEX_STEP_TYPE_ERROR_MESSAGE');
+      if (errorStep) {
+        const rawErr = errorStep.errorMessage?.error;
+        const specificError = rawErr?.shortError || rawErr?.modelErrorMessage;
+        const userMsg = rawErr?.userErrorMessage;
+        const errDetails = (specificError && specificError !== userMsg)
+          ? `${userMsg ? userMsg + ': ' : ''}${specificError}`
+          : (specificError || userMsg || 'Agent error');
+        this.cascadeSessions.drop(fingerprint);
+        throw new Error(errDetails);
+      }
+
+      // 2. Find the active planner response for the current turn
+      const plannerStep = relevantSteps.findLast(s => s.type === 'CORTEX_STEP_TYPE_PLANNER_RESPONSE');
+      if (!plannerStep) continue;
+
+      const fullResponse = plannerStep.plannerResponse?.modifiedResponse || plannerStep.plannerResponse?.response || '';
+      if (/This version of Antigravity is no longer supported/i.test(fullResponse)) {
+        this.cascadeSessions.drop(fingerprint);
+        throw new Error(fullResponse);
+      }
+
+      // Stream real-time extended thinking deltas to Cursor
+      const thinkingText = plannerStep.plannerResponse?.thinking || '';
+      if (thinkingText.length > streamedThinkingCount) {
+        const thinkingDelta = thinkingText.slice(streamedThinkingCount);
+        streamedThinkingCount = thinkingText.length;
+        if (thinkingDelta) {
+          onDelta({ thinking: thinkingDelta });
         }
+      }
 
-        if (type === 'CORTEX_STEP_TYPE_PLANNER_RESPONSE') {
-          const fullResponse = step.plannerResponse?.modifiedResponse || step.plannerResponse?.response || '';
-          if (/This version of Antigravity is no longer supported/i.test(fullResponse)) {
-            this.cascadeSessions.drop(fingerprint);
-            throw new Error(fullResponse);
-          }
+      if (plannerStep.plannerResponse?.toolCalls) {
+        finalPlannerToolCalls = plannerStep.plannerResponse.toolCalls;
+      }
+      if (plannerStep.metadata?.modelUsage) {
+        finalModelUsage = plannerStep.metadata.modelUsage;
+      }
 
-          // 1. Stream real-time extended thinking deltas to Cursor
-          const thinkingText = step.plannerResponse?.thinking || '';
-          if (thinkingText.length > streamedThinkingCount) {
-            const thinkingDelta = thinkingText.slice(streamedThinkingCount);
-            streamedThinkingCount = thinkingText.length;
-            if (thinkingDelta) {
-              onDelta({ thinking: thinkingDelta });
-            }
-          }
+      accumulatedText = fullResponse;
 
-          if (step.plannerResponse?.toolCalls) {
-            finalPlannerToolCalls = step.plannerResponse.toolCalls;
-          }
-          if (step.metadata?.modelUsage) {
-            finalModelUsage = step.metadata.modelUsage;
-          }
+      // In agent mode with tools, withhold streaming raw tool-call JSON/XML blocks to Cursor chat
+      const toolStartIdx = hasTools ? toolPayloadStartIndex(fullResponse) : -1;
+      const visibleLimit = toolStartIdx >= 0 ? toolStartIdx : fullResponse.length;
 
-          accumulatedText = fullResponse;
+      if (visibleLimit > streamedCharCount) {
+        const delta = fullResponse.slice(streamedCharCount, visibleLimit);
+        streamedCharCount = visibleLimit;
+        if (delta) onDelta(delta);
+      }
 
-          // In agent mode with tools, withhold streaming raw tool-call JSON/XML blocks to Cursor chat
-          const toolStartIdx = hasTools ? toolPayloadStartIndex(fullResponse) : -1;
-          const visibleLimit = toolStartIdx >= 0 ? toolStartIdx : fullResponse.length;
-
-          if (visibleLimit > streamedCharCount) {
-            const delta = fullResponse.slice(streamedCharCount, visibleLimit);
-            streamedCharCount = visibleLimit;
-            if (delta) onDelta(delta);
-          }
-
-          if (step.status === 'CORTEX_STEP_STATUS_DONE') {
-            isFinished = true;
-            break;
-          }
-        }
+      if (plannerStep.status === 'CORTEX_STEP_STATUS_DONE') {
+        isFinished = true;
+        break;
       }
     }
 
-    if (!isFinished && !accumulatedText) {
+    if (!isFinished) {
+      this.cascadeSessions.drop(fingerprint);
       throw new Error('Timed out waiting for model response');
     }
 
-    // Save updated total step offset for next turn
-    this.cascadeSessions.set(fingerprint, currentCascadeId, {
-      lastStepOffset: currentStepOffset + turnTotalSteps
-    });
+    // Save active cascade session for next turn
+    this.cascadeSessions.set(fingerprint, currentCascadeId);
 
     // Extract tool calls if tools are available
     let toolCalls = null;

@@ -152,32 +152,23 @@ export async function handleChatCompletions(req, res) {
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
     };
 
-    // Active token watchdog: if no content/reasoning tokens have been sent for 2500ms,
-    // emit a standard empty delta chunk. This resets Cursor's client-side inactivity timer
-    // without altering message content or finish reason.
+    // Standard SSE keepalive comment (: keepalive) every 2000ms.
+    // NEVER send empty choices/delta chunks ({ delta: {} }), as that tricks Cursor
+    // into waiting indefinitely and displaying "Taking longer than expected and still going".
+    const requestStartTime = Date.now();
+    const INACTIVITY_TIMEOUT_MS = 90000; // 90s without any tokens
+    const HARD_TIMEOUT_MS = 120000;      // 120s total request limit
+
     const keepAlive = setInterval(() => {
       if (res.writableEnded || abortController.signal.aborted) return;
       const now = Date.now();
-      if (now - lastTokenTime >= 2500) {
-        lastTokenTime = now;
-        const pingChunk = {
-          id: completionId,
-          object: 'chat.completion.chunk',
-          created: createdTimestamp,
-          model: targetModel,
-          choices: [
-            {
-              index: 0,
-              delta: {},
-              finish_reason: null
-            }
-          ]
-        };
-        res.write(`data: ${JSON.stringify(pingChunk)}\n\n`);
-      } else {
-        res.write(': keepalive\n\n');
+      if (now - lastTokenTime >= INACTIVITY_TIMEOUT_MS || now - requestStartTime >= HARD_TIMEOUT_MS) {
+        console.warn(`[OpenAIAdapter] Inactivity timeout reached (${Math.round((now - requestStartTime) / 1000)}s). Aborting stream.`);
+        abortController.abort(new Error('Timed out waiting for Antigravity model response.'));
+        return;
       }
-    }, 1000);
+      res.write(': keepalive\n\n');
+    }, 2000);
 
     const cleanup = () => clearInterval(keepAlive);
 
@@ -346,13 +337,25 @@ export async function handleChatCompletions(req, res) {
             return;
           }
           console.error('[OpenAIAdapter] Completion stream error:', err.message);
-          const errChunk = {
-            error: {
-              message: err.message,
-              type: 'antigravity_error'
-            }
+
+          // Emit the error clearly to Cursor chat as visible content so the user is informed
+          const errMsg = `\n\n⚠️ **Antigravity Bridge Error**: ${err.message}`;
+          emitDelta(errMsg, 'content');
+
+          const finishChunk = {
+            id: completionId,
+            object: 'chat.completion.chunk',
+            created: createdTimestamp,
+            model: targetModel,
+            choices: [
+              {
+                index: 0,
+                delta: {},
+                finish_reason: 'stop'
+              }
+            ]
           };
-          res.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+          res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
           res.write('data: [DONE]\n\n');
           res.end();
         }
@@ -361,7 +364,22 @@ export async function handleChatCompletions(req, res) {
       cleanup();
       if (!res.writableEnded) {
         console.error('[OpenAIAdapter] Error starting completion:', err.message);
-        res.write(`data: ${JSON.stringify({ error: { message: err.message } })}\n\n`);
+        const errMsg = `\n\n⚠️ **Antigravity Bridge Error**: ${err.message}`;
+        emitDelta(errMsg, 'content');
+        const finishChunk = {
+          id: completionId,
+          object: 'chat.completion.chunk',
+          created: createdTimestamp,
+          model: targetModel,
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: 'stop'
+            }
+          ]
+        };
+        res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
       }
