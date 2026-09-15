@@ -6,13 +6,27 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "build": "vite build",
+    "dev:client": "vite"
   },
-  "keywords": ["antigravity", "cursor", "gemini", "claude", "ai-proxy"],
+  "keywords": [
+    "antigravity",
+    "cursor",
+    "gemini",
+    "claude",
+    "ai-proxy"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.0"
   }
 }

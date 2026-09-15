@@ -128,8 +128,11 @@ app.use((req, res, next) => {
   return res.status(401).send('401 Unauthorized - Access to Antigravity Dashboard requires valid credentials.');
 });
 
-// Serve static files for Dashboard
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Serve static files for Dashboard (prefers React built dist/, falls back to public/)
+const distDir = path.join(__dirname, '..', 'dist');
+const publicDir = path.join(__dirname, '..', 'public');
+const staticDir = fs.existsSync(distDir) ? distDir : publicDir;
+app.use(express.static(staticDir));
 
 // ==========================================
 // OpenAI-Compatible v1 Endpoints (For Cursor)
@@ -245,6 +248,12 @@ app.post('/api/accounts/active', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.post('/api/accounts/clear-limits', (req, res) => {
+  const { accountId } = req.body || {};
+  accountManager.clearRateLimits(accountId || null);
+  res.json({ success: true, message: 'Rate limits cleared' });
 });
 
 app.get('/api/accounts/settings', (req, res) => {
@@ -441,6 +450,18 @@ app.get('/api/proxy/status', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// SPA fallback for client-side routing
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/v1/')) {
+    return next();
+  }
+  const indexPath = path.join(staticDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  next();
 });
 
 const server = app.listen(PORT, async () => {

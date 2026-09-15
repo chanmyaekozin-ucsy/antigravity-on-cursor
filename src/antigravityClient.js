@@ -707,22 +707,24 @@ class AntigravityClient {
 
     // Define fallback chain for models experiencing transient capacity limits
     const FALLBACK_CHAINS = {
-      'dominate-gemini-3.8-flash-high': ['dominate-gemini-3.8-flash-medium', 'dominate-gemini-pro-agent'],
-      'dominate-gemini-3.8-flash-medium': ['dominate-gemini-3.8-flash-low', 'dominate-gemini-pro-agent'],
-      'dominate-gemini-3.7-flash-high': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent'],
-      'dominate-gemini-3.7-flash-medium': ['dominate-gemini-3.8-flash-medium', 'dominate-gemini-pro-agent'],
-      'dominate-kladue-opus-4-6': ['dominate-kladue-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
-      'dominate-kladue-opus-4-6-thinking': ['dominate-kladue-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
-      'dominate-kladue-sonnet-4-6': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent'],
-      'dominate-kladue-3-7-sonnet': ['dominate-kladue-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
+      'dominate-gemini-3.8-flash-high': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'dominate-gemini-3.8-flash-medium': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'dominate-gemini-3.8-flash-low': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'dominate-gemini-3.7-flash-high': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'dominate-gemini-3.7-flash-medium': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'dominate-gemini-3.6-flash-high': ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'],
+      'dominate-gemini-pro-agent': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-3.8-flash-high'],
+      'dominate-klaude-opus-4-6': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-pro-agent'],
+      'dominate-klaude-opus-4-6-thinking': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-pro-agent'],
+      'dominate-klaude-sonnet-4-6': ['dominate-gemini-pro-agent', 'dominate-gemini-3.8-flash-high'],
+      'dominate-klaude-3-7-sonnet': ['dominate-klaude-sonnet-4-6', 'dominate-gemini-pro-agent'],
       // Compatibility with claude spelling
-      'dominate-claude-sonnet-4-6': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent'],
-      'claude-sonnet-4-6': ['dominate-gemini-3.8-flash-high', 'dominate-gemini-pro-agent']
+      'dominate-claude-sonnet-4-6': ['dominate-gemini-pro-agent', 'dominate-gemini-3.8-flash-high'],
+      'claude-sonnet-4-6': ['dominate-gemini-pro-agent', 'dominate-gemini-3.8-flash-high']
     };
 
-    const modelsToTry = [modelId, ...(FALLBACK_CHAINS[modelId] || ['dominate-gemini-3.8-flash-medium', 'dominate-gemini-pro-agent'])];
+    const modelsToTry = [modelId, ...(FALLBACK_CHAINS[modelId] || ['dominate-gemini-pro-agent', 'dominate-klaude-sonnet-4-6'])];
 
-    let currentAccountId = accountManager.getInitialAccount(accountId);
     let lastError = null;
     let anyDeltaSent = false;
     let turn = buildNativeTurn({
@@ -739,8 +741,24 @@ class AntigravityClient {
       const internalModel = modelConfig.model;
       const accountsTriedForModel = new Set();
 
+      // Resolve a healthy account specifically for this model family
+      let currentAccountId = accountManager.getInitialAccount(accountId, currentModelId);
+
       while (currentAccountId && !accountsTriedForModel.has(currentAccountId)) {
         accountsTriedForModel.add(currentAccountId);
+
+        // Pre-check if currentAccountId is currently in cooldown for this model
+        const rlimit = accountManager.getRateLimitInfo(currentAccountId, currentModelId);
+        if (rlimit.isLimited) {
+          const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel, currentModelId);
+          if (nextAcc) {
+            currentAccountId = nextAcc.id;
+            continue;
+          } else {
+            console.warn(`[Antigravity] All available accounts in rate-limit cooldown for '${currentModelId}'.`);
+            break; // Try next model in chain
+          }
+        }
 
         let conn = null;
         try {
@@ -750,7 +768,7 @@ class AntigravityClient {
           lastError = connErr;
           if (accountManager.config.autoSwitchOnLimit) {
             accountManager.markRateLimited(currentAccountId, 120);
-            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel);
+            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel, currentModelId);
             if (nextAcc) {
               console.log(`[Antigravity] Connection failover: switching from ${currentAccountId} to ${nextAcc.id}...`);
               currentAccountId = nextAcc.id;
@@ -801,6 +819,7 @@ class AntigravityClient {
 
           // If tokens were already streamed to client, we cannot switch accounts or models
           if (anyDeltaSent) {
+            this.cascadeSessions.drop(fingerprint);
             onError(err);
             return;
           }
@@ -811,11 +830,12 @@ class AntigravityClient {
 
           if ((isRateLimit || isAuthError) && accountManager.config.autoSwitchOnLimit) {
             const cooldown = isAuthError ? 900 : 600;
-            accountManager.markRateLimited(currentAccountId, cooldown);
+            // For quota limits, cool down this specific model category; for auth errors, cool down the account globally
+            accountManager.markRateLimited(currentAccountId, cooldown, isAuthError ? null : currentModelId);
             const reason = isAuthError ? 'authentication failure' : 'rate/quota/overload limit';
             console.warn(`[Antigravity] Account '${currentAccountId}' hit ${reason} on model '${currentModelId}'.`);
 
-            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel);
+            const nextAcc = accountManager.getNextAvailableAccount(currentAccountId, accountsTriedForModel, currentModelId);
             if (nextAcc) {
               console.log(`[Antigravity] Auto-switching from ${currentAccountId} to ${nextAcc.id} (${nextAcc.email || nextAcc.name})...`);
               currentAccountId = nextAcc.id;
@@ -849,7 +869,14 @@ class AntigravityClient {
     }
 
     if (lastError) {
-      onError(lastError);
+      this.cascadeSessions.drop(fingerprint);
+      const isQuota = /RESOURCE_EXHAUSTED|quota exceeded|Rate limit|rate_limit|capacity limit|429|exhausted|overloaded|Agent execution terminated due to error/i.test(lastError.message || '');
+      if (isQuota) {
+        const friendlyError = new Error(`Google Antigravity quota/capacity limit reached on model '${modelId}'. Tip: Switch to Claude Sonnet 4.6 (Thinking) or Gemini Pro in Cursor, or add another Google account in the dashboard.`);
+        onError(friendlyError);
+      } else {
+        onError(lastError);
+      }
     }
   }
 
@@ -1068,9 +1095,7 @@ class AntigravityClient {
 
         if (type === 'CORTEX_STEP_TYPE_ERROR_MESSAGE') {
           const errDetails = step.errorMessage?.error?.userErrorMessage || step.errorMessage?.error?.shortError || 'Agent error';
-          if (isReused) {
-            this.cascadeSessions.drop(fingerprint);
-          }
+          this.cascadeSessions.drop(fingerprint);
           throw new Error(errDetails);
         }
 

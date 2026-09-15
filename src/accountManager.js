@@ -210,9 +210,9 @@ class AccountManager {
       isActive: this.config.activeAccountId === 'default',
       authMethod: nativeTokenInfo?.authMethod || 'consumer',
       expiry: nativeTokenInfo?.expiry || null,
-      status: !nativeTokenInfo?.hasToken ? 'Missing Token' : defaultRateLimit.isRateLimited ? 'Rate Limited' : nativeTokenInfo.isExpired ? 'Needs Refresh' : 'Connected',
-      isRateLimited: defaultRateLimit.isRateLimited,
-      rateLimitedRemainingSec: defaultRateLimit.remainingSec,
+      status: !nativeTokenInfo?.hasToken ? 'Missing Token' : defaultRateLimit.isLimited ? 'Rate Limited' : nativeTokenInfo.isExpired ? 'Needs Refresh' : 'Connected',
+      isRateLimited: defaultRateLimit.isLimited,
+      rateLimitedRemainingSec: defaultRateLimit.remainingSeconds,
       cooldownRemaining: defaultRateLimit.remainingSeconds
     };
 
@@ -322,12 +322,6 @@ class AccountManager {
         JSON.stringify(tokenObj, null, 2),
         'utf-8'
       );
-      // On Linux/Docker, if primary default token is missing, also write to DEFAULT_TOKEN_PATH
-      if (!fs.existsSync(DEFAULT_TOKEN_PATH)) {
-        const defaultDir = path.dirname(DEFAULT_TOKEN_PATH);
-        if (!fs.existsSync(defaultDir)) fs.mkdirSync(defaultDir, { recursive: true });
-        fs.writeFileSync(DEFAULT_TOKEN_PATH, JSON.stringify(tokenObj, null, 2), 'utf-8');
-      }
     } catch (err) {
       console.error(`[AccountManager] Failed to write account directory for ${accountId}:`, err.message);
     }
@@ -554,23 +548,100 @@ class AccountManager {
   }
 
   /**
-   * Rate limit tracking
+   * Resolve category for model to isolate quota exhaustion
    */
-  markRateLimited(accountId, cooldownSeconds = 600) {
-    const until = Date.now() + (cooldownSeconds * 1000);
-    this.rateLimits.set(accountId, until);
-    console.warn(`[AccountManager] Account '${accountId}' marked as rate-limited for ${cooldownSeconds}s`);
+  getModelCategory(modelId) {
+    if (!modelId) return 'gemini-flash';
+    const lower = String(modelId).toLowerCase();
+    if (lower.includes('claude') || lower.includes('klaude')) return 'claude';
+    if (lower.includes('pro-agent') || lower.includes('gemini-pro') || lower.includes('3.1-pro')) return 'gemini-pro';
+    if (lower.includes('gpt')) return 'gpt';
+    return 'gemini-flash';
   }
 
-  getRateLimitInfo(accountId) {
-    const until = this.rateLimits.get(accountId);
-    if (!until || until <= Date.now()) {
+  /**
+   * Rate limit tracking with model-category isolation.
+   * If modelId is given, only that model category (e.g. gemini-flash) is cooled down,
+   * leaving other models (e.g. claude, gemini-pro) active on the account!
+   */
+  markRateLimited(accountId, cooldownSeconds = 600, modelId = null) {
+    const until = Date.now() + (cooldownSeconds * 1000);
+    const category = modelId ? this.getModelCategory(modelId) : '*';
+    const key = `${accountId}:${category}`;
+    this.rateLimits.set(key, until);
+    console.warn(`[AccountManager] Account '${accountId}' marked as rate-limited (${category}) for ${cooldownSeconds}s`);
+  }
+
+  getRateLimitInfo(accountId, modelId = null) {
+    const now = Date.now();
+    // Check global lock first
+    const globalUntil = this.rateLimits.get(`${accountId}:*`);
+    if (globalUntil && globalUntil > now) {
+      return { isLimited: true, remainingSeconds: Math.ceil((globalUntil - now) / 1000), category: 'all' };
+    }
+
+    // If model specified, check category lock
+    if (modelId) {
+      const category = this.getModelCategory(modelId);
+      const catUntil = this.rateLimits.get(`${accountId}:${category}`);
+      if (catUntil && catUntil > now) {
+        return { isLimited: true, remainingSeconds: Math.ceil((catUntil - now) / 1000), category };
+      }
       return { isLimited: false, remainingSeconds: 0 };
     }
-    return {
-      isLimited: true,
-      remainingSeconds: Math.ceil((until - Date.now()) / 1000)
-    };
+
+    // Check if any category is locked
+    let maxRemaining = 0;
+    let lockedCat = null;
+    for (const [key, until] of this.rateLimits.entries()) {
+      if (key.startsWith(`${accountId}:`) && until > now) {
+        const rem = Math.ceil((until - now) / 1000);
+        if (rem > maxRemaining) {
+          maxRemaining = rem;
+          lockedCat = key.split(':')[1];
+        }
+      }
+    }
+
+    if (maxRemaining > 0) {
+      return { isLimited: true, remainingSeconds: maxRemaining, category: lockedCat };
+    }
+
+    return { isLimited: false, remainingSeconds: 0 };
+  }
+
+  /**
+   * Clear rate limits (all or for a specific account)
+   */
+  clearRateLimits(accountId = null) {
+    if (accountId) {
+      for (const key of Array.from(this.rateLimits.keys())) {
+        if (key.startsWith(`${accountId}:`)) {
+          this.rateLimits.delete(key);
+        }
+      }
+      console.log(`[AccountManager] Cleared rate limits for account ${accountId}`);
+    } else {
+      this.rateLimits.clear();
+      console.log(`[AccountManager] Cleared all account rate limits`);
+    }
+  }
+
+  /**
+   * Helper: Check if default token on disk is a clone/duplicate of a secondary account
+   */
+  _isDefaultDuplicateOfSecondary() {
+    if (!fs.existsSync(DEFAULT_TOKEN_PATH)) return false;
+    try {
+      const raw = JSON.parse(fs.readFileSync(DEFAULT_TOKEN_PATH, 'utf-8'));
+      const defToken = raw?.access_token || raw?.token?.access_token || raw?.token?.refresh_token;
+      if (!defToken) return false;
+      for (const a of this.config.accounts || []) {
+        const secToken = a.token?.access_token || a.token?.token?.access_token || a.token?.token?.refresh_token;
+        if (secToken && secToken === defToken) return true;
+      }
+    } catch {}
+    return false;
   }
 
   /**
@@ -598,15 +669,15 @@ class AccountManager {
   /**
    * Resolve an initial healthy account, gracefully falling back if preferred is missing credentials or rate-limited
    */
-  getInitialAccount(preferredId = null) {
+  getInitialAccount(preferredId = null, modelId = null) {
     const targetId = preferredId || this.config.activeAccountId || 'default';
     if (this.hasValidCredentials(targetId)) {
-      const rlimit = this.getRateLimitInfo(targetId);
+      const rlimit = this.getRateLimitInfo(targetId, modelId);
       if (!rlimit.isLimited) {
         return targetId;
       }
     }
-    const next = this.getNextAvailableAccount(targetId);
+    const next = this.getNextAvailableAccount(targetId, null, modelId);
     if (next) return next.id;
     return targetId;
   }
@@ -614,13 +685,14 @@ class AccountManager {
   /**
    * Find next available non-rate-limited account with valid credentials for auto-failover
    */
-  getNextAvailableAccount(currentAccountId, excludedIds = null) {
+  getNextAvailableAccount(currentAccountId, excludedIds = null, modelId = null) {
     const excluded = excludedIds instanceof Set ? excludedIds : new Set(excludedIds || []);
     const accounts = this.config.accounts || [];
     const allAccountIds = [];
 
-    // Only include default if it actually has valid credentials
-    if (this.hasValidCredentials('default')) {
+    // Only include default if it has valid credentials AND is not a duplicate copy of a secondary account
+    const isDup = this._isDefaultDuplicateOfSecondary();
+    if (this.hasValidCredentials('default') && !isDup) {
       allAccountIds.push('default');
     }
     for (const a of accounts) {
@@ -632,7 +704,7 @@ class AccountManager {
     const available = allAccountIds.filter(id => {
       if (id === currentAccountId) return false;
       if (excluded.has(id)) return false;
-      const rlimit = this.getRateLimitInfo(id);
+      const rlimit = this.getRateLimitInfo(id, modelId);
       return !rlimit.isLimited;
     });
 
