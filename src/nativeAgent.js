@@ -980,6 +980,31 @@ function compactCalls(calls) {
 }
 
 /**
+ * Scan text starting at startIdx (which must be a '{' char) and return the
+ * complete JSON object string by tracking bracket depth and string literals.
+ * Unlike regex, this correctly handles } and ] characters inside string values.
+ */
+function scanJsonObject(text, startIdx) {
+  if (!text || startIdx < 0 || text[startIdx] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') {
+      depth--;
+      if (depth === 0) return text.slice(startIdx, i + 1);
+    }
+  }
+  return null; // unterminated
+}
+
+/**
  * Extract tool calls from Antigravity plannerResponse.toolCalls and/or model text.
  */
 export function extractToolCalls(text, prToolCalls, availableTools = [], tool_choice = 'auto') {
@@ -1007,18 +1032,42 @@ export function extractToolCalls(text, prToolCalls, availableTools = [], tool_ch
     return fromPlanner();
   }
 
-  // 1) {"tool_calls":[...]}
-  const multi = text.match(/```(?:json)?\s*(\{[\s\S]*?"tool_calls"\s*:\s*\[[\s\S]*?\]\s*\})\s*```/)
-    || text.match(/(\{[\s\S]*?"tool_calls"\s*:\s*\[[\s\S]*?\]\s*\})/);
-  if (multi) {
-    try {
-      const parsed = JSON.parse(multi[1]);
-      if (Array.isArray(parsed.tool_calls)) {
-        return parsed.tool_calls.map((tc, idx) =>
-          toToolCall(tc.function?.name || tc.name, tc.function?.arguments || tc.arguments || tc.args || {}, idx, toolNames)
-        );
+  // 1) {"tool_calls":[...]} — use bracket-depth scanner, NOT regex, because
+  //    the arguments may contain full file contents with embedded ] and } chars
+  //    that break non-greedy regex matching (e.g. Write tool with JSX code).
+  const toolCallsStart = (() => {
+    // Find every candidate position where "tool_calls" key appears
+    let pos = 0;
+    while (pos < text.length) {
+      const idx = text.indexOf('"tool_calls"', pos);
+      if (idx === -1) break;
+      // Walk backwards to find the opening { of the enclosing object
+      let objStart = -1;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (text[i] === '{') { objStart = i; break; }
+        if (text[i] !== ' ' && text[i] !== '\n' && text[i] !== '\r') break;
       }
-    } catch { /* continue */ }
+      if (objStart !== -1) return { objStart, keyIdx: idx };
+      pos = idx + 1;
+    }
+    // Also accept: ```json\n{"tool_calls":...}\n```
+    const fenced = text.match(/```(?:json)?\s*(\{)/);
+    if (fenced) return { objStart: fenced.index + fenced[0].length - 1, keyIdx: -1 };
+    return null;
+  })();
+
+  if (toolCallsStart) {
+    const extracted = scanJsonObject(text, toolCallsStart.objStart);
+    if (extracted) {
+      try {
+        const parsed = JSON.parse(extracted);
+        if (Array.isArray(parsed.tool_calls) && parsed.tool_calls.length) {
+          return parsed.tool_calls.map((tc, idx) =>
+            toToolCall(tc.function?.name || tc.name, tc.function?.arguments || tc.arguments || tc.args || {}, idx, toolNames)
+          );
+        }
+      } catch { /* continue */ }
+    }
   }
 
   // 2) Single fenced JSON tool
