@@ -26,8 +26,6 @@
 - **🔑 Multi-Account & Key Management (`accountManager.js`)**:
   - Rotate multiple Antigravity credentials to balance rate limits and quotas.
   - Generate virtual local API keys (`sk-antigravity-...`).
-- **🌐 Network Resiliency & Proxying (`proxyManager.js`)**:
-  - Built-in Proxy Auto-Config (PAC) and SOCKS5/HTTP proxy chaining to bypass regional restrictions.
 - **🚇 Remote Access Tunneling (`tunnelManager.js`)**:
   - Instant SSH-based tunneling (Serveo) to expose your bridge for remote machines or paired development.
 - **📊 Real-Time Web Dashboard (`public/`)**:
@@ -126,7 +124,6 @@ From the dashboard, you can:
 │   ├── openaiAdapter.js    # Schema conversion & SSE stream transform
 │   ├── antigravityClient.js# Upstream API client
 │   ├── accountManager.js   # Multi-account auth & key rotation
-│   ├── proxyManager.js     # Proxy Auto-Config & network routing
 │   └── tunnelManager.js    # Remote SSH tunneling service
 ├── package.json
 └── README.md

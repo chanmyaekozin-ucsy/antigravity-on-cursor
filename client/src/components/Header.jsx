@@ -18,7 +18,7 @@ export default function Header({ status }) {
         </div>
         <div>
           <div className="brand-title">Antigravity Bridge</div>
-          <div className="brand-subtitle">Cursor IDE Model Proxy &amp; Account Orchestrator</div>
+          <div className="brand-subtitle">Cursor IDE Model Bridge &amp; Account Orchestrator</div>
         </div>
       </div>
 

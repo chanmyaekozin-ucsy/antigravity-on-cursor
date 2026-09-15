@@ -8,7 +8,6 @@ import { handleModels, handleChatCompletions } from './openaiAdapter.js';
 import { antigravity } from './antigravityClient.js';
 import { accountManager } from './accountManager.js';
 import { oauthManager } from './oauthManager.js';
-import { proxyManager } from './proxyManager.js';
 import { tunnelManager } from './tunnelManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -86,12 +85,10 @@ app.use((req, res, next) => {
   // - /v1/* : OpenAI-compatible endpoints used by Cursor IDE (secured by Bearer API keys)
   // - /health : Docker/Coolify health monitoring
   // - /oauth-callback : Google OAuth browser redirect handler
-  // - /proxy.pac : System Proxy Auto-Config
   if (
     req.path.startsWith('/v1') ||
     req.path === '/health' ||
-    req.path === '/oauth-callback' ||
-    req.path === '/proxy.pac'
+    req.path === '/oauth-callback'
   ) {
     return next();
   }
@@ -391,66 +388,6 @@ app.delete('/api/keys/:id', (req, res) => {
   }
 });
 
-// ==========================================
-// Proxy / PAC File APIs
-// ==========================================
-
-/**
- * Serve a PAC (Proxy Auto-Config) file that routes only Google API domains
- * through the configured proxy — everything else goes DIRECT.
- * Claude models (anthropic.com) will always bypass the proxy.
- */
-app.get('/proxy.pac', (req, res) => {
-  const cfg = proxyManager.getConfig();
-  const pac = proxyManager.generatePAC(cfg);
-  res.setHeader('Content-Type', 'application/x-ns-proxy-autoconfig');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.send(pac);
-});
-
-app.get('/api/proxy', (req, res) => {
-  res.json(proxyManager.getConfig());
-});
-
-app.put('/api/proxy', (req, res) => {
-  try {
-    const updated = proxyManager.setConfig(req.body);
-    // Force reconnect so new proxy takes effect immediately
-    antigravity.serverUrl = null;
-    antigravity.csrfToken = null;
-    antigravity.lastDiscoveryTime = 0;
-    res.json(updated);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.post('/api/proxy/apply-pac', async (req, res) => {
-  try {
-    const result = await proxyManager.applyPACToMacOS(PORT);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/proxy/disable-pac', async (req, res) => {
-  try {
-    const result = await proxyManager.disablePACFromMacOS();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/proxy/status', async (req, res) => {
-  try {
-    const status = await proxyManager.getMacOSProxyStatus();
-    res.json(status);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // SPA fallback for client-side routing
 app.get('*', (req, res, next) => {

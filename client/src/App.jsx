@@ -7,7 +7,6 @@ import ModelsView from './views/ModelsView.jsx';
 import QuotaView from './views/QuotaView.jsx';
 import KeysView from './views/KeysView.jsx';
 import AccountsView from './views/AccountsView.jsx';
-import ProxyView from './views/ProxyView.jsx';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('quickstart');
@@ -70,7 +69,6 @@ export default function App() {
         {activeTab === 'quota' && <QuotaView />}
         {activeTab === 'keys' && <KeysView onCopy={handleCopy} showToast={showToast} />}
         {activeTab === 'accounts' && <AccountsView showToast={showToast} />}
-        {activeTab === 'proxy' && <ProxyView showToast={showToast} />}
       </main>
 
       <Toast toast={toast} />

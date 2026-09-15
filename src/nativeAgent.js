@@ -662,7 +662,6 @@ npm run dev
 │   ├── nativeAgent.js      # Cursor agent orchestrator & tool engine
 │   ├── antigravityClient.js# Upstream client for Antigravity models
 │   ├── accountManager.js   # Account & API key manager
-│   ├── proxyManager.js     # PAC file generator & proxy manager
 │   └── tunnelManager.js    # SSH tunnel manager
 ├── package.json            # Manifest & dependencies
 └── README.md               # Documentation

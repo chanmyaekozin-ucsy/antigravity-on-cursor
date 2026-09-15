@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initCopyButtons();
   initModals();
-  initProxy();
   initTunnelPanel();
   
   // Initial data loading
@@ -13,7 +12,6 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchQuota();
   fetchKeys();
   fetchAccounts();
-  fetchProxy();
 
   // Poll status and quota periodically
   setInterval(fetchStatus, 8000);
@@ -773,127 +771,5 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-/* ==========================================
-   Network & Proxy Tab
-========================================== */
-async function fetchProxy() {
-  try {
-    const res = await fetch('/api/proxy');
-    const cfg = await res.json();
-    applyProxyConfigToUI(cfg);
-  } catch {
-    // Ignore
-  }
 
-  // Also check macOS PAC status
-  try {
-    const res = await fetch('/api/proxy/status');
-    const status = await res.json();
-    updatePACStatusUI(status);
-  } catch {
-    // Ignore
-  }
-}
-
-function applyProxyConfigToUI(cfg) {
-  const toggle = document.getElementById('proxy-enabled-toggle');
-  const urlInput = document.getElementById('proxy-url-input');
-  if (toggle) toggle.checked = Boolean(cfg.enabled);
-  if (urlInput) urlInput.value = cfg.url || '';
-}
-
-function updatePACStatusUI(status) {
-  const el = document.getElementById('pac-macos-status');
-  const text = document.getElementById('pac-status-text');
-  if (!el || !text) return;
-  if (status.enabled) {
-    el.classList.add('active');
-    text.textContent = `Active on ${status.service}`;
-  } else {
-    el.classList.remove('active');
-    text.textContent = `Inactive (${status.service})`;
-  }
-}
-
-function initProxy() {
-  // Save proxy settings
-  document.getElementById('btn-save-proxy')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-save-proxy');
-    const enabled = document.getElementById('proxy-enabled-toggle')?.checked || false;
-    const url = document.getElementById('proxy-url-input')?.value?.trim() || '';
-
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
-    try {
-      const res = await fetch('/api/proxy', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled, url })
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        showToast('Error: ' + (err.error || 'Save failed'), 'error');
-      } else {
-        showToast('Proxy settings saved!');
-        // Refresh PAC status
-        await fetchProxy();
-      }
-    } catch (e) {
-      showToast('Network error: ' + e.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save Proxy Settings';
-    }
-  });
-
-  // Apply PAC to macOS
-  document.getElementById('btn-apply-pac')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-apply-pac');
-    btn.disabled = true;
-    btn.textContent = 'Applying...';
-    try {
-      const res = await fetch('/api/proxy/apply-pac', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || 'PAC applied to macOS!');
-        await fetchProxy();
-      } else {
-        showToast('Error: ' + (data.error || 'Apply failed'), 'error');
-      }
-    } catch (e) {
-      showToast('Error: ' + e.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Apply PAC to macOS';
-    }
-  });
-
-  // Remove PAC from macOS
-  document.getElementById('btn-disable-pac')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-disable-pac');
-    btn.disabled = true;
-    btn.textContent = 'Removing...';
-    try {
-      const res = await fetch('/api/proxy/disable-pac', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || 'PAC removed from macOS.');
-        await fetchProxy();
-      } else {
-        showToast('Error: ' + (data.error || 'Remove failed'), 'error');
-      }
-    } catch (e) {
-      showToast('Error: ' + e.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> Remove PAC';
-    }
-  });
-}
-
-/* showToast supports optional type: 'error' */
-const _origShowToast = window.showToast;
-if (!window._proxyToastPatched) {
-  window._proxyToastPatched = true;
-}
 

@@ -6,8 +6,7 @@ export default function TabNav({ activeTab, onTabChange }) {
     { id: 'models', label: 'Models Catalog' },
     { id: 'quota', label: 'Live Quota' },
     { id: 'keys', label: 'API Keys' },
-    { id: 'accounts', label: 'Google Accounts' },
-    { id: 'proxy', label: 'Network & Proxy' }
+    { id: 'accounts', label: 'Google Accounts' }
   ];
 
   return (
